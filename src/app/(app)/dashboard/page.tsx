@@ -1,0 +1,609 @@
+'use client';
+
+import React, { useMemo, useState, useEffect } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { collection, query, orderBy, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { useCollection } from 'react-firebase-hooks/firestore';
+import { format } from 'date-fns';
+import { Camera, Utensils, Flame, AlertCircle, CheckCircle, TrendingUp, Zap, Trash2, Edit2, X, Loader2 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import type { FoodEntry } from '@/lib/types/food-entry';
+import type { UserProfile } from '@/lib/types/user-profile';
+
+const DEFAULT_GOALS = { calories: 2000, protein: 150, carbs: 250, fat: 65 };
+
+function MacroRing({ value, goal, color, label }: { value: number; goal: number; color: string; label: string }) {
+  const pct = Math.min(value / goal, 1);
+  const r = 28;
+  const circ = 2 * Math.PI * r;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-16 h-16">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r={r} fill="none" stroke="#e5e7eb" strokeWidth="5" />
+          <circle cx="32" cy="32" r={r} fill="none" stroke={color} strokeWidth="5"
+            strokeDasharray={`${pct * circ} ${circ}`} strokeLinecap="round"
+            style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xs font-bold">{Math.round(value)}</span>
+        </div>
+      </div>
+      <span className="text-xs text-gray-500">{label}</span>
+    </div>
+  );
+}
+
+interface MealCardProps {
+  entry: FoodEntry;
+  user: any;
+  today: string;
+  onEdit: (entry: FoodEntry) => void;
+  onDelete: (entryId: string) => void;
+}
+
+function MealCard({ entry, user, today, onEdit, onDelete }: MealCardProps) {
+  return (
+    <div className="flex items-center gap-2 py-3 border-b last:border-0 group">
+      {entry.imageUrl ? (
+        <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+          <Image src={entry.imageUrl} alt={entry.foodName} fill className="object-cover" />
+        </div>
+      ) : (
+        <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+          <Utensils className="h-5 w-5 text-gray-400" />
+        </div>
+      )}
+      <div className="flex-grow min-w-0">
+        <p className="font-medium text-sm truncate">{entry.foodName}</p>
+        <p className="text-xs text-gray-500">{entry.portionSizeGrams}g</p>
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-sm font-semibold">{Math.round(entry.calories)}</p>
+        <p className="text-xs text-gray-400">kcal</p>
+      </div>
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => onEdit(entry)}
+          className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+          title="Edit meal"
+        >
+          <Edit2 className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => onDelete(entry.id)}
+          className="p-1.5 rounded-lg hover:bg-red-100 text-red-600 transition-colors"
+          title="Delete meal"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface EditMealModalProps {
+  entry: FoodEntry | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (updatedEntry: FoodEntry) => Promise<void>;
+}
+
+function EditMealModal({ entry, isOpen, onClose, onSave }: EditMealModalProps) {
+  const [portionSize, setPortionSize] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (entry) {
+      setPortionSize(String(entry.portionSizeGrams));
+      setSaveError(null);
+    }
+  }, [entry]);
+
+  if (!isOpen || !entry) return null;
+
+  const handleSave = async () => {
+    const newPortionSize = parseFloat(portionSize);
+    if (newPortionSize > 0) {
+      try {
+        setSaveError(null);
+        const ratio = newPortionSize / entry.portionSizeGrams;
+        const updated: FoodEntry = {
+          ...entry,
+          portionSizeGrams: newPortionSize,
+          calories: Math.round(entry.calories * ratio),
+          proteinGrams: Math.round(entry.proteinGrams * ratio * 10) / 10,
+          carbsGrams: Math.round(entry.carbsGrams * ratio * 10) / 10,
+          fatGrams: Math.round(entry.fatGrams * ratio * 10) / 10,
+        };
+        await onSave(updated);
+      } catch (e: any) {
+        setSaveError(e.message || 'Failed to save changes');
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Edit Meal</h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <p className="font-medium text-sm">{entry.foodName}</p>
+          <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1">
+            <p>Original: {entry.calories} kcal, {entry.proteinGrams}g protein</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Portion Size (grams)</Label>
+          <Input
+            type="number"
+            value={portionSize}
+            onChange={e => setPortionSize(e.target.value)}
+            min="1"
+          />
+        </div>
+
+        <div className="bg-blue-50 rounded-lg p-3 space-y-1">
+          <p className="text-xs font-medium text-blue-900">Updated Nutrition:</p>
+          {portionSize && (
+            <>
+              <p className="text-sm text-blue-900">{Math.round(parseFloat(portionSize) / entry.portionSizeGrams * entry.calories)} kcal</p>
+              <p className="text-xs text-blue-800">{Math.round(parseFloat(portionSize) / entry.portionSizeGrams * entry.proteinGrams * 10) / 10}g protein</p>
+            </>
+          )}
+        </div>
+
+        {saveError && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-900">
+            {saveError}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button onClick={handleSave} className="flex-1 bg-blue-600 hover:bg-blue-700">Save Changes</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getNutritionAlerts(totals: any, goals: any) {
+  const alerts = [];
+  const proteinPercent = (totals.protein / goals.protein) * 100;
+  const caloriePercent = (totals.calories / goals.calories) * 100;
+  const carbPercent = (totals.carbs / goals.carbs) * 100;
+  const fatPercent = (totals.fat / goals.fat) * 100;
+
+  // Protein status
+  if (proteinPercent < 50) {
+    alerts.push({
+      type: 'warning',
+      icon: <AlertCircle className="h-4 w-4" />,
+      title: 'Low Protein',
+      message: `${Math.round(totals.protein)}g of ${goals.protein}g - add protein-rich foods`,
+      color: 'bg-yellow-50 border-yellow-200 text-yellow-900',
+    });
+  } else if (proteinPercent >= 80 && proteinPercent <= 120) {
+    alerts.push({
+      type: 'success',
+      icon: <CheckCircle className="h-4 w-4" />,
+      title: 'Great Protein!',
+      message: `${Math.round(totals.protein)}g - excellent macronutrient support`,
+      color: 'bg-green-50 border-green-200 text-green-900',
+    });
+  }
+
+  // Calorie status
+  if (caloriePercent > 120) {
+    alerts.push({
+      type: 'warning',
+      icon: <AlertCircle className="h-4 w-4" />,
+      title: 'Calorie Overload',
+      message: `${Math.round(totals.calories)} kcal exceeds your daily goal`,
+      color: 'bg-red-50 border-red-200 text-red-900',
+    });
+  } else if (caloriePercent >= 90 && caloriePercent <= 110) {
+    alerts.push({
+      type: 'success',
+      icon: <CheckCircle className="h-4 w-4" />,
+      title: 'Perfect Calorie Balance',
+      message: `${Math.round(totals.calories)} kcal - right on track!`,
+      color: 'bg-green-50 border-green-200 text-green-900',
+    });
+  } else if (caloriePercent < 50) {
+    alerts.push({
+      type: 'info',
+      icon: <TrendingUp className="h-4 w-4" />,
+      title: 'More to Go',
+      message: `${Math.round(goals.calories - totals.calories)} kcal remaining for today`,
+      color: 'bg-blue-50 border-blue-200 text-blue-900',
+    });
+  }
+
+  // Macro balance
+  const macroBalance = Math.abs(carbPercent - 50) + Math.abs(fatPercent - 30) + Math.abs(proteinPercent - 20);
+  if (macroBalance < 30) {
+    alerts.push({
+      type: 'success',
+      icon: <Zap className="h-4 w-4" />,
+      title: 'Balanced Macros',
+      message: 'Excellent protein, carb, and fat distribution',
+      color: 'bg-green-50 border-green-200 text-green-900',
+    });
+  }
+
+  return alerts;
+}
+
+export default function DashboardPage() {
+  const { user } = useAuth();
+  const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [editingMeal, setEditingMeal] = useState<FoodEntry | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [clearAllConfirm, setClearAllConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Handle delete meal
+  const handleDelete = (entryId: string) => {
+    setDeleteConfirm(entryId);
+    setDeleteError(null);
+  };
+
+  // Load user profile with multi-profile support
+  useEffect(() => {
+    if (!user) {
+      setProfileLoading(false);
+      return;
+    }
+    const loadProfile = async () => {
+      try {
+        setProfileLoading(true);
+        setProfileError(null);
+
+        // First, load settings to get activeProfileId
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        let profileId = 'main';
+        
+        if (settingsDoc.exists()) {
+          const settings = settingsDoc.data();
+          profileId = settings?.profileId || 'main';
+          setActiveProfileId(profileId);
+        }
+
+        // Load the active profile
+        let profileData: UserProfile | null = null;
+        
+        if (profileId === 'main') {
+          // Load main profile from settings
+          if (settingsDoc.exists()) {
+            profileData = settingsDoc.data() as UserProfile;
+          }
+        } else {
+          // Load from profiles subcollection
+          const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', profileId));
+          if (profileDoc.exists()) {
+            profileData = profileDoc.data() as UserProfile;
+          }
+        }
+
+        if (profileData) {
+          setUserProfile(profileData);
+        } else {
+          setProfileError('Unable to load profile. Using default goals.');
+        }
+      } catch (e: any) {
+        setProfileError('Failed to load profile. Using default goals.');
+        console.error('Profile load error:', e);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    loadProfile();
+  }, [user]);
+
+  // Get goals - use personal goals if available, otherwise use defaults
+  const DAILY_GOALS = userProfile
+    ? {
+        calories: userProfile.dailyCalorieGoal || DEFAULT_GOALS.calories,
+        protein: userProfile.dailyProteinGoal || DEFAULT_GOALS.protein,
+        carbs: userProfile.dailyCarbsGoal || DEFAULT_GOALS.carbs,
+        fat: userProfile.dailyFatGoal || DEFAULT_GOALS.fat,
+      }
+    : DEFAULT_GOALS;
+
+  const entriesQuery = useMemo(() => {
+    if (!user) return null;
+    return query(collection(db, 'users', user.uid, 'days', today, 'entries'), orderBy('createdAt', 'desc'));
+  }, [user, today]);
+
+  const [snapshot, loading] = useCollection(entriesQuery);
+  const entries = snapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() } as FoodEntry)) ?? [];
+
+  const totals = useMemo(() => {
+    if (!entries) return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    return entries.reduce((acc, e) => ({
+      calories: acc.calories + (e.calories || 0),
+      protein: acc.protein + (e.proteinGrams || 0),
+      carbs: acc.carbs + (e.carbsGrams || 0),
+      fat: acc.fat + (e.fatGrams || 0),
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }, [entries]);
+
+  const nutritionAlerts = useMemo(() => getNutritionAlerts(totals, DAILY_GOALS), [totals]);
+
+  const calPct = Math.min(totals.calories / DAILY_GOALS.calories, 1);
+
+  return (
+    <div className="flex flex-col gap-6 pb-8">
+      <div>
+        <p className="text-sm text-gray-500">{format(new Date(), 'EEEE, MMMM do')}</p>
+        <h1 className="text-2xl font-bold tracking-tight">Today's Nutrition</h1>
+      </div>
+
+      {/* PROFILE LOADING INDICATOR */}
+      {profileLoading && (
+        <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 flex gap-3">
+          <Loader2 className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5 animate-spin" />
+          <p className="text-sm text-blue-900">Loading your nutrition goals...</p>
+        </div>
+      )}
+
+      {/* PROFILE ERROR */}
+      {profileError && !profileLoading && (
+        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 flex gap-3">
+          <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-900">{profileError}</p>
+        </div>
+      )}
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500 flex items-center gap-1">
+                <Flame className="h-4 w-4 text-orange-400" /> Calories
+              </p>
+              <p className="text-4xl font-bold mt-1">
+                {profileLoading ? <Skeleton className="h-10 w-24 inline-block" /> : Math.round(totals.calories)}
+              </p>
+              <p className="text-sm text-gray-400">of {DAILY_GOALS.calories} goal</p>
+            </div>
+            <div className="relative w-24 h-24">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 96 96">
+                <circle cx="48" cy="48" r="40" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+                <circle cx="48" cy="48" r="40" fill="none" stroke="#0d9488" strokeWidth="8"
+                  strokeDasharray={`${calPct * 251.3} 251.3`} strokeLinecap="round"
+                  style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-sm font-bold">{profileLoading ? '...' : Math.round(calPct * 100)}%</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-around mt-6 pt-4 border-t">
+            <MacroRing value={totals.protein} goal={DAILY_GOALS.protein} color="#3b82f6" label="Protein" />
+            <MacroRing value={totals.carbs} goal={DAILY_GOALS.carbs} color="#f59e0b" label="Carbs" />
+            <MacroRing value={totals.fat} goal={DAILY_GOALS.fat} color="#ec4899" label="Fat" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* NUTRITIONAL ALERTS */}
+      {!loading && nutritionAlerts.length > 0 && (
+        <div className="space-y-2">
+          {nutritionAlerts.map((alert, i) => (
+            <div key={i} className={`p-3 rounded-lg border flex gap-3 ${alert.color}`}>
+              <div className="flex-shrink-0 mt-0.5">
+                {alert.icon}
+              </div>
+              <div className="flex-grow">
+                <p className="font-medium text-sm">{alert.title}</p>
+                <p className="text-xs opacity-90">{alert.message}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* EDIT MEAL MODAL */}
+      <EditMealModal
+        entry={editingMeal}
+        isOpen={!!editingMeal}
+        onClose={() => setEditingMeal(null)}
+        onSave={async (updated) => {
+          if (user) {
+            try {
+              await updateDoc(doc(db, 'users', user.uid, 'days', today, 'entries', updated.id), {
+                portionSizeGrams: updated.portionSizeGrams,
+                calories: updated.calories,
+                proteinGrams: updated.proteinGrams,
+                carbsGrams: updated.carbsGrams,
+                fatGrams: updated.fatGrams,
+              });
+              setEditingMeal(null);
+            } catch (e) {
+              console.error('Failed to update meal:', e);
+            }
+          }
+        }}
+      />
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold">Delete this meal?</h2>
+            <p className="text-sm text-gray-600">This action cannot be undone.</p>
+            {deleteError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-900">
+                {deleteError}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setDeleteConfirm(null);
+                  setDeleteError(null);
+                }} 
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (user && deleteConfirm) {
+                    try {
+                      await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', deleteConfirm));
+                      setDeleteConfirm(null);
+                      setDeleteError(null);
+                    } catch (e: any) {
+                      setDeleteError(e.message || 'Failed to delete meal. Please try again.');
+                      console.error('Failed to delete meal:', e);
+                    }
+                  }
+                }}
+                className="flex-1 bg-red-600 hover:bg-red-700"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLEAR ALL CONFIRMATION MODAL */}
+      {clearAllConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-red-600">Clear all meals?</h2>
+            <p className="text-sm text-gray-600">This will delete all {entries?.length} logged meals for today. This action cannot be undone.</p>
+            {deleteError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-900">
+                {deleteError}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setClearAllConfirm(false);
+                  setDeleteError(null);
+                }} 
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (user && entries) {
+                    try {
+                      for (const entry of entries) {
+                        await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', entry.id));
+                      }
+                      setClearAllConfirm(false);
+                      setDeleteError(null);
+                    } catch (e: any) {
+                      setDeleteError(e.message || 'Failed to clear meals. Please try again.');
+                      console.error('Failed to clear meals:', e);
+                    }
+                  }
+                }}
+                className="flex-1 bg-red-600 hover:bg-red-700"
+              >
+                Clear All
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Link href="/log">
+        <Button size="lg" className="w-full gap-2 text-base h-14 bg-teal-600 hover:bg-teal-700">
+          <Camera className="h-5 w-5" /> Log Food
+        </Button>
+      </Link>
+      <div className="grid grid-cols-3 gap-3 text-center text-xs">
+        <div className="flex flex-col items-center gap-1">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+            <Camera className="h-4 w-4 text-blue-600" />
+          </div>
+          <span className="text-gray-600">Take or upload</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+            <Utensils className="h-4 w-4 text-green-600" />
+          </div>
+          <span className="text-gray-600">Search foods</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+            <Zap className="h-4 w-4 text-purple-600" />
+          </div>
+          <span className="text-gray-600">Describe meal</span>
+        </div>
+      </div>
+      <Card>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Utensils className="h-4 w-4" /> Today's Meals
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-2 space-y-3">
+          {loading && <div className="space-y-3 pt-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>}
+          {!loading && !entries?.length && (
+            <div className="text-center py-8 text-gray-400">
+              <Utensils className="mx-auto h-8 w-8 mb-2 opacity-40" />
+              <p className="text-sm">No meals logged yet today</p>
+            </div>
+          )}
+          {!loading && entries?.length > 0 && (
+            <>
+              <div className="space-y-0">
+                {entries.map(e => (
+                  <MealCard
+                    key={e.id}
+                    entry={e as FoodEntry}
+                    user={user}
+                    today={today}
+                    onEdit={setEditingMeal}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+              {entries.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setClearAllConfirm(true)}
+                  className="w-full text-red-600 hover:bg-red-50 border-red-200"
+                >
+                  Clear All Meals
+                </Button>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
