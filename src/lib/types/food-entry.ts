@@ -10,4 +10,5 @@ export interface FoodEntry {
   portionSizeGrams: number;
   imageUrl?: string | null;
   createdAt: Timestamp;
+  profileId?: string;
 }

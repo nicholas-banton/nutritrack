@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { doc, setDoc, getDoc, query, collection, getDocs, deleteDoc } from 'firebase/firestore';
 import { ArrowLeft, Save, Loader2, AlertCircle, CheckCircle, Upload, X, Plus, Trash2 } from 'lucide-react';
@@ -56,6 +56,9 @@ export default function SettingsPage() {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showProfileForm, setShowProfileForm] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
+  
+  // Track if we've loaded profiles on this mount to prevent unnecessary reloads
+  const hasLoadedRef = useRef(false);
 
   // Convert height cm to feet and inches
   const cmToFeetInches = (cm: number) => {
@@ -76,9 +79,12 @@ export default function SettingsPage() {
   // Convert lbs to kg
   const lbsToKg = (lbs: number) => Math.round(lbs / 2.20462 * 10) / 10;
 
-  // Load existing profile(s) and active profile
+  // Load existing profile(s) and active profile - only once per mount
   useEffect(() => {
-    if (!user) return;
+    if (!user || hasLoadedRef.current) return;
+    
+    hasLoadedRef.current = true;
+
     const loadProfile = async () => {
       try {
         // Load the main settings doc to get activeProfileId
@@ -121,25 +127,27 @@ export default function SettingsPage() {
 
           // Load height - store as inches and derive feet/inches for display
           const htInches = activeProfile.heightInches || 0;
-          setHeightInches(String(htInches));
           if (htInches > 0) {
             const feet = Math.floor(htInches / 12);
             const inches = Math.round(htInches % 12);
             setHeightFeet(String(feet));
             setHeightInches(String(inches));
+          } else {
+            setHeightFeet('');
+            setHeightInches('');
           }
           setHeightCm(String(Math.round(htInches * 2.54)));
 
           // Load and display weights in lbs
-          setCurrentWeightLbs(String(activeProfile.currentWeightLbs || ''));
-          setCurrentWeightDisplay(String(activeProfile.currentWeightLbs || ''));
-          setGoalWeightLbs(String(activeProfile.goalWeightLbs || ''));
-          setGoalWeightDisplay(String(activeProfile.goalWeightLbs || ''));
+          const currentWt = activeProfile.currentWeightLbs || 0;
+          const goalWt = activeProfile.goalWeightLbs || 0;
+          setCurrentWeightLbs(String(currentWt));
+          setCurrentWeightDisplay(String(currentWt));
+          setGoalWeightLbs(String(goalWt));
+          setGoalWeightDisplay(String(goalWt));
           setGoalWeightDate(activeProfile.goalWeightDate || '');
 
-          if (activeProfile.bloodPanel) {
-            setBloodPanelData(activeProfile.bloodPanel);
-          }
+          setBloodPanelData(activeProfile.bloodPanel || null);
         }
       } catch (e: any) {
         setError('Failed to load profile');
@@ -187,7 +195,7 @@ export default function SettingsPage() {
   }, [heightInches, heightFeet, heightCm, currentWeightDisplay, goalWeightDisplay, age, sex, heightUnit, weightUnit, goalWeightDate]);
 
   const handleSaveProfile = async () => {
-    if (!user) return;
+    if (!user || !activeProfileId) return;
 
     // Prepare height in inches
     let finalHeightInches = 0;
@@ -229,7 +237,7 @@ export default function SettingsPage() {
         heightInches: Math.round(finalHeightInches * 10) / 10,
         currentWeightLbs: Math.round(finalCurrentWeightLbs * 10) / 10,
         goalWeightLbs: Math.round(finalGoalWeightLbs * 10) / 10,
-        goalWeightDate: goalWeightDate || undefined,
+        ...(goalWeightDate ? { goalWeightDate } : {}),
         bmi,
         goalBmi,
         daysToGoal: macroGoals?.daysToGoal,
@@ -243,7 +251,13 @@ export default function SettingsPage() {
         updatedAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, 'users', user.uid, 'profile', 'settings'), profile);
+      // Save to the correct location based on active profile
+      if (activeProfileId === 'main') {
+        await setDoc(doc(db, 'users', user.uid, 'profile', 'settings'), profile);
+      } else {
+        await setDoc(doc(db, 'users', user.uid, 'profiles', activeProfileId), profile);
+      }
+      
       setSuccess(true);
       setTimeout(() => router.push('/dashboard'), 1500);
     } catch (e: any) {
@@ -305,10 +319,18 @@ export default function SettingsPage() {
 
     try {
       setSaving(true);
-      
-      // Load the selected profile
-      const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', profileId));
-      const profile = profileDoc.data() as UserProfile;
+
+      let profile: UserProfile | null = null;
+
+      if (profileId === 'main') {
+        // Load main profile from settings
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        profile = settingsDoc.data() as UserProfile;
+      } else {
+        // Load from profiles subcollection
+        const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', profileId));
+        profile = profileDoc.data() as UserProfile;
+      }
 
       if (profile) {
         // Set form fields from selected profile
@@ -317,24 +339,26 @@ export default function SettingsPage() {
         setSex(profile.sex || 'male');
 
         const htInches = profile.heightInches || 0;
-        setHeightInches(String(htInches));
         if (htInches > 0) {
           const feet = Math.floor(htInches / 12);
           const inches = Math.round(htInches % 12);
           setHeightFeet(String(feet));
           setHeightInches(String(inches));
+        } else {
+          setHeightFeet('');
+          setHeightInches('');
         }
         setHeightCm(String(Math.round(htInches * 2.54)));
 
-        setCurrentWeightLbs(String(profile.currentWeightLbs || ''));
-        setCurrentWeightDisplay(String(profile.currentWeightLbs || ''));
-        setGoalWeightLbs(String(profile.goalWeightLbs || ''));
-        setGoalWeightDisplay(String(profile.goalWeightLbs || ''));
+        const currentWt = profile.currentWeightLbs || 0;
+        const goalWt = profile.goalWeightLbs || 0;
+        setCurrentWeightLbs(String(currentWt));
+        setCurrentWeightDisplay(String(currentWt));
+        setGoalWeightLbs(String(goalWt));
+        setGoalWeightDisplay(String(goalWt));
         setGoalWeightDate(profile.goalWeightDate || '');
 
-        if (profile.bloodPanel) {
-          setBloodPanelData(profile.bloodPanel);
-        }
+        setBloodPanelData(profile.bloodPanel || null);
 
         // Update active profile in settings
         const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
@@ -466,17 +490,20 @@ export default function SettingsPage() {
             <div className="flex gap-2">
               <select
                 value={activeProfileId || 'main'}
-                onChange={e =>handleSwitchProfile(e.target.value)}
+                onChange={e => handleSwitchProfile(e.target.value)}
                 disabled={saving}
                 className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm"
               >
+                <option value="main">
+                  Main Profile {activeProfileId === 'main' ? '(Active)' : ''}
+                </option>
                 {profiles.map(profile => (
                   <option key={profile.profileId} value={profile.profileId || 'main'}>
-                    {profile.name} ({profile.profileId === activeProfileId ? 'Active' : 'Inactive'})
+                    {profile.name} {profile.profileId === activeProfileId ? '(Active)' : ''}
                   </option>
                 ))}
               </select>
-              {profiles.length > 1 && activeProfileId !== 'main' && (
+              {profiles.length > 0 && activeProfileId !== 'main' && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -515,6 +542,14 @@ export default function SettingsPage() {
                       disabled={saving || !newProfileName.trim()}
                     >
                       Create
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setNewProfileName('')}
+                      disabled={saving || !newProfileName.trim()}
+                    >
+                      Clear
                     </Button>
                     <Button
                       size="sm"
@@ -747,7 +782,7 @@ export default function SettingsPage() {
       )}
 
       {/* WEIGHT GOAL TIMELINE INFO */}
-      {goalWeightDate && macroGoals && macroGoals.dailyCalorieAdjustment !== 0 && (
+      {goalWeightDate && macroGoals && (
         <Card className="border-blue-200 bg-blue-50">
           <CardHeader>
             <CardTitle className="text-blue-900">Weight Goal Plan</CardTitle>
@@ -757,7 +792,7 @@ export default function SettingsPage() {
               <div className="bg-white/60 rounded p-2">
                 <p className="text-xs text-blue-600 font-medium">Weekly Change</p>
                 <p className="text-lg font-bold text-blue-900">
-                  {macroGoals.weeklyWeightChange > 0 ? '+' : ''}{macroGoals.weeklyWeightChange} kg
+                  {macroGoals.weeklyWeightChange > 0 ? '+' : ''}{(macroGoals.weeklyWeightChange * 2.20462).toFixed(1)} lbs
                 </p>
               </div>
               <div className="bg-white/60 rounded p-2">

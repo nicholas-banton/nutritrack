@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
-import { collection, query, orderBy } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, where } from 'firebase/firestore';
 import { useCollectionData } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
-import { Utensils, Image as ImageIcon } from 'lucide-react';
+import { Utensils, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +13,7 @@ import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { FoodEntry } from '@/lib/types/food-entry';
+import { Label } from '@/components/ui/label';
 
 const EntryCard = ({ entry }: { entry: FoodEntry }) => (
   <Card className="overflow-hidden">
@@ -43,11 +44,40 @@ export default function HistoryPage() {
   const { user } = useAuth();
   const [selectedDate, setSelectedDate] = React.useState(new Date());
   const dateId = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  // Load active profile ID
+  useEffect(() => {
+    if (!user) {
+      setProfileLoading(false);
+      return;
+    }
+    const loadActiveProfile = async () => {
+      try {
+        setProfileLoading(true);
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        if (settingsDoc.exists()) {
+          const settings = settingsDoc.data();
+          setActiveProfileId(settings?.profileId || 'main');
+        }
+      } catch (e: any) {
+        console.error('Failed to load active profile:', e);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    loadActiveProfile();
+  }, [user]);
 
   const entriesQuery = useMemo(() => {
-    if (!user) return null;
-    return query(collection(db, 'users', user.uid, 'days', dateId, 'entries'), orderBy('createdAt', 'desc'));
-  }, [user, dateId]);
+    if (!user || !activeProfileId) return null;
+    return query(
+      collection(db, 'users', user.uid, 'days', dateId, 'entries'),
+      where('profileId', '==', activeProfileId),
+      orderBy('createdAt', 'desc')
+    );
+  }, [user, dateId, activeProfileId]);
 
   const [entries, loading, error] = useCollectionData(entriesQuery, { idField: 'id' });
 

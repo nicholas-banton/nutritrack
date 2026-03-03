@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { collection, query, orderBy, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, deleteDoc, updateDoc, getDocs, setDoc, where } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
 import { Camera, Utensils, Flame, AlertCircle, CheckCircle, TrendingUp, Zap, Trash2, Edit2, X, Loader2 } from 'lucide-react';
@@ -257,10 +257,54 @@ export default function DashboardPage() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [profileSwitching, setProfileSwitching] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [editingMeal, setEditingMeal] = useState<FoodEntry | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [clearAllConfirm, setClearAllConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Load all profiles for the dropdown
+  useEffect(() => {
+    if (!user) return;
+    const loadProfiles = async () => {
+      try {
+        // Load the main settings doc to get activeProfileId
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        let activeId = 'main';
+        let mainProfile = null;
+
+        if (settingsDoc.exists()) {
+          mainProfile = settingsDoc.data() as UserProfile;
+          activeId = mainProfile.profileId || 'main';
+        }
+
+        // Load all profiles from the user's profile subcollection
+        const profilesSnapshot = await getDocs(collection(db, 'users', user.uid, 'profiles'));
+        const loadedProfiles: UserProfile[] = [];
+        
+        profilesSnapshot.forEach(doc => {
+          loadedProfiles.push({
+            ...doc.data(),
+            profileId: doc.id,
+          } as UserProfile);
+        });
+
+        // If no profiles exist, use the main profile
+        if (loadedProfiles.length === 0 && mainProfile) {
+          mainProfile.profileId = 'main';
+          loadedProfiles.push(mainProfile);
+        }
+
+        setProfiles(loadedProfiles);
+        setActiveProfileId(activeId);
+      } catch (e: any) {
+        console.error('Failed to load profiles:', e);
+      }
+    };
+    loadProfiles();
+  }, [user]);
 
   // Handle delete meal
   const handleDelete = (entryId: string) => {
@@ -268,9 +312,49 @@ export default function DashboardPage() {
     setDeleteError(null);
   };
 
+  // Switch profile and reload its goals
+  const handleSwitchProfile = async (profileId: string) => {
+    if (!user) return;
+
+    try {
+      setProfileSwitching(true);
+      setProfileError(null);
+
+      let profile: UserProfile | null = null;
+
+      if (profileId === 'main') {
+        // Load main profile from settings
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        profile = settingsDoc.data() as UserProfile;
+      } else {
+        // Load from profiles subcollection
+        const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', profileId));
+        profile = profileDoc.data() as UserProfile;
+      }
+
+      if (profile) {
+        // Update active profile in settings
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        await setDoc(doc(db, 'users', user.uid, 'profile', 'settings'),
+          { ...settingsDoc.data(), profileId },
+          { merge: true }
+        );
+
+        // Update state to trigger goal reload
+        setActiveProfileId(profileId);
+        setUserProfile(profile);
+      }
+    } catch (e: any) {
+      setProfileError('Failed to switch profile');
+      console.error('Profile switch error:', e);
+    } finally {
+      setProfileSwitching(false);
+    }
+  };
+
   // Load user profile with multi-profile support
   useEffect(() => {
-    if (!user) {
+    if (!user || !activeProfileId) {
       setProfileLoading(false);
       return;
     }
@@ -279,27 +363,18 @@ export default function DashboardPage() {
         setProfileLoading(true);
         setProfileError(null);
 
-        // First, load settings to get activeProfileId
-        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
-        let profileId = 'main';
-        
-        if (settingsDoc.exists()) {
-          const settings = settingsDoc.data();
-          profileId = settings?.profileId || 'main';
-          setActiveProfileId(profileId);
-        }
-
         // Load the active profile
         let profileData: UserProfile | null = null;
         
-        if (profileId === 'main') {
+        if (activeProfileId === 'main') {
           // Load main profile from settings
+          const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
           if (settingsDoc.exists()) {
             profileData = settingsDoc.data() as UserProfile;
           }
         } else {
           // Load from profiles subcollection
-          const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', profileId));
+          const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profiles', activeProfileId));
           if (profileDoc.exists()) {
             profileData = profileDoc.data() as UserProfile;
           }
@@ -318,7 +393,7 @@ export default function DashboardPage() {
       }
     };
     loadProfile();
-  }, [user]);
+  }, [user, activeProfileId]);
 
   // Get goals - use personal goals if available, otherwise use defaults
   const DAILY_GOALS = userProfile
@@ -331,9 +406,13 @@ export default function DashboardPage() {
     : DEFAULT_GOALS;
 
   const entriesQuery = useMemo(() => {
-    if (!user) return null;
-    return query(collection(db, 'users', user.uid, 'days', today, 'entries'), orderBy('createdAt', 'desc'));
-  }, [user, today]);
+    if (!user || !activeProfileId) return null;
+    return query(
+      collection(db, 'users', user.uid, 'days', today, 'entries'),
+      where('profileId', '==', activeProfileId),
+      orderBy('createdAt', 'desc')
+    );
+  }, [user, today, activeProfileId]);
 
   const [snapshot, loading] = useCollection(entriesQuery);
   const entries = snapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() } as FoodEntry)) ?? [];
@@ -354,6 +433,52 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6 pb-8">
+      {/* PROFILE SELECTOR */}
+      {profiles.length > 0 && (
+        <div className="space-y-2">
+          <Label>Profile</Label>
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              disabled={profileSwitching}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-left flex items-center justify-between hover:bg-gray-50 disabled:opacity-50"
+            >
+              <span>
+                {activeProfileId === 'main' 
+                  ? 'Main Profile' 
+                  : profiles.find(p => p.profileId === activeProfileId)?.name || 'Main Profile'}
+              </span>
+              <span className="text-xs text-gray-500">{profileSwitching ? '...' : '▾'}</span>
+            </button>
+            {showProfileMenu && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-input rounded-lg shadow-lg z-10">
+                <button
+                  onClick={() => {
+                    handleSwitchProfile('main');
+                    setShowProfileMenu(false);
+                  }}
+                  className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 ${activeProfileId === 'main' ? 'bg-blue-50 font-medium text-blue-600' : ''}`}
+                >
+                  Main Profile {activeProfileId === 'main' ? '(Active)' : ''}
+                </button>
+                {profiles.map(profile => (
+                  <button
+                    key={profile.profileId}
+                    onClick={() => {
+                      handleSwitchProfile(profile.profileId || 'main');
+                      setShowProfileMenu(false);
+                    }}
+                    className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 border-t ${profile.profileId === activeProfileId ? 'bg-blue-50 font-medium text-blue-600' : ''}`}
+                  >
+                    {profile.name} {profile.profileId === activeProfileId ? '(Active)' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div>
         <p className="text-sm text-gray-500">{format(new Date(), 'EEEE, MMMM do')}</p>
         <h1 className="text-2xl font-bold tracking-tight">Today's Nutrition</h1>
@@ -430,16 +555,21 @@ export default function DashboardPage() {
         isOpen={!!editingMeal}
         onClose={() => setEditingMeal(null)}
         onSave={async (updated) => {
-          if (user) {
+          if (user && activeProfileId) {
             try {
-              await updateDoc(doc(db, 'users', user.uid, 'days', today, 'entries', updated.id), {
-                portionSizeGrams: updated.portionSizeGrams,
-                calories: updated.calories,
-                proteinGrams: updated.proteinGrams,
-                carbsGrams: updated.carbsGrams,
-                fatGrams: updated.fatGrams,
-              });
-              setEditingMeal(null);
+              // Verify meal belongs to current profile before updating
+              if (updated.profileId === activeProfileId) {
+                await updateDoc(doc(db, 'users', user.uid, 'days', today, 'entries', updated.id), {
+                  portionSizeGrams: updated.portionSizeGrams,
+                  calories: updated.calories,
+                  proteinGrams: updated.proteinGrams,
+                  carbsGrams: updated.carbsGrams,
+                  fatGrams: updated.fatGrams,
+                });
+                setEditingMeal(null);
+              } else {
+                console.error('Cannot update meal from a different profile');
+              }
             } catch (e) {
               console.error('Failed to update meal:', e);
             }
@@ -471,11 +601,17 @@ export default function DashboardPage() {
               </Button>
               <Button
                 onClick={async () => {
-                  if (user && deleteConfirm) {
+                  if (user && deleteConfirm && activeProfileId) {
                     try {
-                      await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', deleteConfirm));
-                      setDeleteConfirm(null);
-                      setDeleteError(null);
+                      // Verify meal belongs to current profile before deleting
+                      const mealToDelete = entries.find(e => e.id === deleteConfirm);
+                      if (mealToDelete && mealToDelete.profileId === activeProfileId) {
+                        await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', deleteConfirm));
+                        setDeleteConfirm(null);
+                        setDeleteError(null);
+                      } else {
+                        setDeleteError('Unable to delete meal. It may belong to a different profile.');
+                      }
                     } catch (e: any) {
                       setDeleteError(e.message || 'Failed to delete meal. Please try again.');
                       console.error('Failed to delete meal:', e);
@@ -515,10 +651,13 @@ export default function DashboardPage() {
               </Button>
               <Button
                 onClick={async () => {
-                  if (user && entries) {
+                  if (user && entries && activeProfileId) {
                     try {
                       for (const entry of entries) {
-                        await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', entry.id));
+                        // Verify meal belongs to current profile before deleting
+                        if (entry.profileId === activeProfileId) {
+                          await deleteDoc(doc(db, 'users', user.uid, 'days', today, 'entries', entry.id));
+                        }
                       }
                       setClearAllConfirm(false);
                       setDeleteError(null);
@@ -542,26 +681,6 @@ export default function DashboardPage() {
           <Camera className="h-5 w-5" /> Log Food
         </Button>
       </Link>
-      <div className="grid grid-cols-3 gap-3 text-center text-xs">
-        <div className="flex flex-col items-center gap-1">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-            <Camera className="h-4 w-4 text-blue-600" />
-          </div>
-          <span className="text-gray-600">Take or upload</span>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-            <Utensils className="h-4 w-4 text-green-600" />
-          </div>
-          <span className="text-gray-600">Search foods</span>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
-            <Zap className="h-4 w-4 text-purple-600" />
-          </div>
-          <span className="text-gray-600">Describe meal</span>
-        </div>
-      </div>
       <Card>
         <CardHeader className="pb-0">
           <CardTitle className="text-base flex items-center gap-2">

@@ -117,6 +117,7 @@ export default function LogPage() {
 
   // User profile state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   // USDA search on debounced input
   useEffect(() => {
@@ -151,7 +152,9 @@ export default function LogPage() {
       try {
         const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
         if (profileDoc.exists()) {
-          setUserProfile(profileDoc.data() as UserProfile);
+          const profileData = profileDoc.data() as UserProfile;
+          setUserProfile(profileData);
+          setActiveProfileId(profileData.profileId || 'main');
         }
       } catch (e) {
         // Profile not found
@@ -229,7 +232,7 @@ export default function LogPage() {
       }
       const today = format(new Date(), 'yyyy-MM-dd');
       await addDoc(collection(db, 'users', user.uid, 'days', today, 'entries'), {
-        ...result, imageUrl, createdAt: serverTimestamp(),
+        ...result, imageUrl, createdAt: serverTimestamp(), profileId: activeProfileId || 'main',
       });
       
       // Fetch all entries for today to get daily totals
