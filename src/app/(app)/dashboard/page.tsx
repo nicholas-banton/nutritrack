@@ -427,6 +427,10 @@ export default function DashboardPage() {
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
   }, [entries]);
 
+  const caloriesRemaining = DAILY_GOALS.calories - totals.calories;
+  const isExceeded = totals.calories > DAILY_GOALS.calories;
+  const isApproaching = !isExceeded && caloriesRemaining > 0 && caloriesRemaining <= 250;
+
   const nutritionAlerts = useMemo(() => getNutritionAlerts(totals, DAILY_GOALS), [totals]);
 
   const calPct = Math.min(totals.calories / DAILY_GOALS.calories, 1);
@@ -511,11 +515,24 @@ export default function DashboardPage() {
                 {profileLoading ? <Skeleton className="h-10 w-24 inline-block" /> : Math.round(totals.calories)}
               </p>
               <p className="text-sm text-gray-400">of {DAILY_GOALS.calories} goal</p>
+              
+              {/* Calories Remaining Display */}
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Remaining Budget</p>
+                <div className={`flex items-center gap-2 text-lg font-bold ${
+                  isExceeded ? 'text-red-600' : isApproaching ? 'text-amber-600' : 'text-green-600'
+                }`}>
+                  <span>{isExceeded ? '⚠️' : isApproaching ? '⚡' : '✓'}</span>
+                  <span>{isExceeded ? `+${Math.abs(caloriesRemaining)}` : caloriesRemaining} kcal</span>
+                </div>
+              </div>
             </div>
             <div className="relative w-24 h-24">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 96 96">
                 <circle cx="48" cy="48" r="40" fill="none" stroke="#e5e7eb" strokeWidth="8" />
-                <circle cx="48" cy="48" r="40" fill="none" stroke="#0d9488" strokeWidth="8"
+                <circle cx="48" cy="48" r="40" fill="none" 
+                  stroke={isExceeded ? '#dc2626' : isApproaching ? '#f59e0b' : '#0d9488'} 
+                  strokeWidth="8"
                   strokeDasharray={`${calPct * 251.3} 251.3`} strokeLinecap="round"
                   style={{ transition: 'stroke-dasharray 0.6s ease' }} />
               </svg>
@@ -532,7 +549,34 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* NUTRITIONAL ALERTS */}
+      {/* Calories Remaining Warning */}
+      {!loading && (isExceeded || isApproaching) && (
+        <div className={`p-4 rounded-lg border flex gap-3 ${
+          isExceeded 
+            ? 'bg-red-50 border-red-200' 
+            : 'bg-amber-50 border-amber-200'
+        }`}>
+          <div className="flex-shrink-0 mt-0.5">
+            {isExceeded ? (
+              <AlertCircle className={`h-5 w-5 text-red-600`} />
+            ) : (
+              <Zap className={`h-5 w-5 text-amber-600`} />
+            )}
+          </div>
+          <div className="flex-grow">
+            <p className={`font-medium text-sm ${isExceeded ? 'text-red-900' : 'text-amber-900'}`}>
+              {isExceeded 
+                ? `You've exceeded your daily calorie goal` 
+                : `You're approaching your daily limit`}
+            </p>
+            <p className={`text-xs mt-1 ${isExceeded ? 'text-red-800' : 'text-amber-800'}`}>
+              {isExceeded 
+                ? 'Consider lighter meals for the rest of the day.' 
+                : 'Choose lighter options for your next meal.'}
+            </p>
+          </div>
+        </div>
+      )}
       {!loading && nutritionAlerts.length > 0 && (
         <div className="space-y-2">
           {nutritionAlerts.map((alert, i) => (
