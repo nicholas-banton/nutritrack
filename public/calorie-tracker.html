@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NutriLog — Calorie Tracker</title>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+
+<style>
+  :root {
+    --bg:       #0d0f14;
+    --surface:  #161922;
+    --card:     #1e2230;
+    --border:   #2a2f3f;
+    --accent:   #4ade80;
+    --accent2:  #22d3ee;
+    --warn:     #fb923c;
+    --danger:   #f87171;
+    --text:     #e8eaf0;
+    --muted:    #6b7280;
+    --radius:   14px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app { position: relative; z-index: 1; }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* AUTH */
+  #auth-screen {
+    min-height: 100vh;
+    display: none;
+    place-items: center;
+    padding: 2rem;
+  }
+  #auth-screen.active { display: grid; }
+
+  .auth-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 3rem 2.5rem;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+    animation: slideUp 0.5s ease;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.25rem;
+  }
+  .logo-sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 2rem; }
+
+  .tab-row {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 1.5rem;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  .tab-btn.active { background: var(--card); color: var(--text); font-weight: 500; }
+
+  label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 0.4rem; }
+
+  input, select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 1rem;
+    -webkit-appearance: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+
+  .btn {
+    width: 100%;
+    padding: 0.85rem 1.5rem;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  .btn-primary { background: var(--accent); color: #0d1a0d; }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+    display: none;
+  }
+  .alert.show { display: block; }
+  .alert-error   { background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.3); color: var(--danger); }
+  .alert-success { background: rgba(74,222,128,0.1);   border: 1px solid rgba(74,222,128,0.25); color: var(--accent); }
+  .alert-info    { background: rgba(34,211,238,0.1);   border: 1px solid rgba(34,211,238,0.25); color: var(--accent2); }
+
+  /* MAIN */
+  #main-screen { min-height: 100vh; padding-bottom: 5rem; }
+  #main-screen.active { display: block; }
+
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .nav-logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.2rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .nav-user { font-size: 0.82rem; color: var(--muted); }
+  .nav-right { display: flex; align-items: center; gap: 0.75rem; }
+  #sign-out-btn { cursor: pointer; font-size: 0.8rem; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.7rem; transition: all 0.2s; font-family: 'DM Sans',sans-serif; }
+  #sign-out-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+  .container { max-width: 700px; margin: 0 auto; padding: 1.5rem; }
+
+  .date-bar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .date-bar button { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 1rem; transition: background 0.2s; }
+  .date-bar button:hover { background: var(--border); }
+  #current-date-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.1rem; flex: 1; text-align: center; }
+
+  .ring-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin-bottom: 1.25rem;
+    animation: slideUp 0.4s ease;
+  }
+  .ring-wrap { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  circle.track { fill: none; stroke: var(--border); stroke-width: 8; }
+  circle.progress { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
+  .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .ring-cal { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.3rem; line-height: 1; }
+  .ring-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+  .ring-stats { flex: 1; }
+  .ring-stats h2 { font-family: 'Syne', sans-serif; font-size: 1rem; margin-bottom: 0.75rem; }
+  .stat-row { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.85rem; }
+  .stat-row span:first-child { color: var(--muted); }
+  .stat-val { font-weight: 500; }
+
+  .macro-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .macro-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+  .macro-name { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.3rem; }
+  .macro-val { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem; }
+  .macro-bar-bg { background: var(--border); border-radius: 4px; height: 4px; overflow: hidden; }
+  .macro-bar-fill { height: 4px; border-radius: 4px; transition: width 0.5s ease; }
+  .macro-card.protein .macro-bar-fill { background: #a78bfa; }
+  .macro-card.carbs   .macro-bar-fill { background: var(--accent2); }
+  .macro-card.fat     .macro-bar-fill { background: var(--warn); }
+
+  .section-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .search-box { position: relative; margin-bottom: 0.75rem; }
+  .search-box input { padding-right: 6rem; margin: 0; }
+  .search-exec-btn {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: var(--accent); color: #0d1a0d;
+    border: none; border-radius: 7px; padding: 0.4rem 0.8rem;
+    font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: opacity 0.2s;
+  }
+  .search-exec-btn:hover { opacity: 0.85; }
+  .search-exec-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .source-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .source-chip { padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; transition: all 0.2s; font-family: 'DM Sans',sans-serif; }
+  .source-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(74,222,128,0.08); }
+
+  #search-results, #fao-results { margin-bottom: 1.5rem; }
+  .result-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s;
+    animation: slideUp 0.3s ease;
+  }
+  .result-item:hover { border-color: var(--accent); transform: translateX(2px); }
+  .result-name { font-size: 0.9rem; font-weight: 500; margin-bottom: 0.2rem; }
+  .result-meta { font-size: 0.78rem; color: var(--muted); }
+  .result-cal { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1rem; color: var(--accent); white-space: nowrap; }
+  .result-source { font-size: 0.68rem; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.25rem; }
+  .panel-title { font-family: 'Syne', sans-serif; font-weight: 700; margin-bottom: 1rem; font-size: 0.95rem; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.75rem; }
+
+  .log-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; animation: slideUp 0.3s ease; }
+  .log-name { font-size: 0.9rem; font-weight: 500; }
+  .log-meta { font-size: 0.77rem; color: var(--muted); margin-top: 0.15rem; }
+  .log-right { display: flex; align-items: center; gap: 0.75rem; }
+  .log-cal { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent); }
+  .delete-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; transition: color 0.2s; padding: 4px; }
+  .delete-btn:hover { color: var(--danger); }
+  .empty-state { text-align: center; color: var(--muted); padding: 2rem; font-size: 0.9rem; }
+
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: none; place-items: center; padding: 1rem; backdrop-filter: blur(4px); }
+  .modal-overlay.show { display: grid; }
+  .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2rem; width: 100%; max-width: 400px; animation: slideUp 0.3s ease; }
+  .modal-title { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.2rem; margin-bottom: 0.4rem; }
+  .modal-sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  #toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--card); border: 1px solid var(--border); padding: 0.7rem 1.25rem; border-radius: 10px; font-size: 0.88rem; transition: transform 0.3s ease; z-index: 300; white-space: nowrap; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--accent); color: var(--accent); }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* Calories Remaining Display */
+  .calories-remaining {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .remaining-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+
+  .remaining-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .remaining-value.safe { color: var(--accent); }
+  .remaining-value.warning { color: var(--warn); }
+  .remaining-value.danger { color: var(--danger); }
+
+  /* Warning Banner */
+  .warning-banner {
+    margin-top: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    display: none;
+  }
+
+  .warning-banner.show { display: flex; }
+
+  .warning-banner.exceeded {
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    color: var(--danger);
+  }
+
+  .warning-banner.caution {
+    background: rgba(251, 146, 60, 0.12);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    color: var(--warn);
+  }
+
+  .warning-icon { font-size: 1rem; flex-shrink: 0; margin-top: 0.1rem; }
+
+  @media (max-width: 500px) {
+    .ring-card { flex-direction: column; text-align: center; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .macro-row { grid-template-columns: 1fr; }
+    .auth-box { padding: 2rem 1.5rem; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-box">
+      <div class="logo">NutriLog</div>
+      <div class="logo-sub">USDA FoodData + Open Food Facts</div>
+
+      <div class="tab-row">
+        <button class="tab-btn active" onclick="switchTab('login')">Sign In</button>
+        <button class="tab-btn" onclick="switchTab('signup')">Create Account</button>
+      </div>
+
+      <div id="auth-alert" class="alert alert-error"></div>
+
+      <div id="login-form">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@email.com"/>
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••"/>
+        <button class="btn btn-primary" onclick="signIn()">Sign In</button>
+      </div>
+
+      <div id="signup-form" style="display:none">
+        <label>Name</label>
+        <input type="text" id="signup-name" placeholder="Your name"/>
+        <label>Email</label>
+        <input type="email" id="signup-email" placeholder="you@email.com"/>
+        <label>Password</label>
+        <input type="password" id="signup-password" placeholder="Min. 6 characters"/>
+        <label>Daily Calorie Goal</label>
+        <input type="number" id="signup-goal" placeholder="e.g. 2000" min="500" max="9999"/>
+        <button class="btn btn-primary" onclick="signUp()">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP SCREEN -->
+  <div id="main-screen" class="screen">
+    <nav>
+      <div class="nav-logo">NutriLog</div>
+      <div class="nav-right">
+        <span class="nav-user" id="nav-user-name"></span>
+        <button id="sign-out-btn" onclick="signOut()">Sign Out</button>
+      </div>
+    </nav>
+
+    <div class="container">
+
+      <div class="date-bar">
+        <button onclick="changeDate(-1)">&#8249;</button>
+        <span id="current-date-label">Today</span>
+        <button onclick="changeDate(1)">&#8250;</button>
+      </div>
+
+      <div class="ring-card">
+        <div class="ring-wrap">
+          <svg width="110" height="110" viewBox="0 0 110 110">
+            <circle class="track" cx="55" cy="55" r="46"/>
+            <circle class="progress" id="ring-progress" cx="55" cy="55" r="46" stroke-dasharray="289" stroke-dashoffset="289"/>
+          </svg>
+          <div class="ring-center">
+            <span class="ring-cal" id="ring-cal-consumed">0</span>
+            <span class="ring-label">kcal</span>
+          </div>
+        </div>
+        <div class="ring-stats">
+          <h2>Today's Nutrition</h2>
+          <div class="stat-row"><span>Goal</span><span class="stat-val" id="stat-goal">—</span></div>
+          <div class="stat-row"><span>Consumed</span><span class="stat-val" id="stat-consumed">0 kcal</span></div>
+          <div class="stat-row"><span>Remaining</span><span class="stat-val" id="stat-remaining">—</span></div>
+          
+          <!-- Calories Remaining Display -->
+          <div class="calories-remaining">
+            <div class="remaining-label">Remaining Budget</div>
+            <div class="remaining-value safe" id="remaining-display">
+              <span class="icon">✓</span>
+              <span id="remaining-text">—</span>
+            </div>
+            <div class="warning-banner" id="warning-banner">
+              <div class="warning-icon" id="warning-icon"></div>
+              <div id="warning-text"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="macro-row">
+        <div class="macro-card protein">
+          <div class="macro-name">Protein</div>
+          <div class="macro-val" id="macro-protein">0g</div>
+          <div class="macro-bar-bg"><div class="macro-bar-fill" id="bar-protein" style="width:0%"></div></div>
+        </div>
+        <div class="macro-card carbs">
+          <div class="macro-name">Carbs</div>
+          <div class="macro-val" id="macro-carbs">0g</div>
+          <div class="macro-bar-bg"><div class="macro-bar-fill" id="bar-carbs" style="width:0%"></div></div>
+        </div>
+        <div class="macro-card fat">
+          <div class="macro-name">Fat</div>
+          <div class="macro-val" id="macro-fat">0g</div>
+          <div class="macro-bar-bg"><div class="macro-bar-fill" id="bar-fat" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="section-title">Add Food</div>
+
+      <div class="source-toggle">
+        <button class="source-chip active" id="chip-usda"   onclick="setSource('usda')">USDA FoodData</button>
+        <button class="source-chip"        id="chip-fao"    onclick="setSource('fao')">Open Food Facts</button>
+        <button class="source-chip"        id="chip-manual" onclick="setSource('manual')">Manual Entry</button>
+      </div>
+
+      <div id="alert-search" class="alert alert-error"></div>
+      <div id="alert-usda-key" class="alert alert-info" style="display:none">
+        &#9888;&#65039; Add your USDA API key in the CONFIG section at the top of the &lt;script&gt; block to enable USDA search.
+        Get a free key at <strong>fdc.nal.usda.gov</strong>
+      </div>
+
+      <!-- USDA -->
+      <div id="source-usda">
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="Search e.g. 'chicken breast', 'banana'…" onkeydown="if(event.key==='Enter') searchUSDA()"/>
+          <button class="search-exec-btn" id="usda-btn" onclick="searchUSDA()">Search</button>
+        </div>
+        <div id="search-results"></div>
+      </div>
+
+      <!-- Open Food Facts -->
+      <div id="source-fao" style="display:none">
+        <div class="search-box">
+          <input type="text" id="fao-search-input" placeholder="Search e.g. 'oats', 'lentils'…" onkeydown="if(event.key==='Enter') searchFAO()"/>
+          <button class="search-exec-btn" id="fao-btn" onclick="searchFAO()">Search</button>
+        </div>
+        <div id="fao-results"></div>
+      </div>
+
+      <!-- Manual Entry -->
+      <div id="source-manual" style="display:none">
+        <div class="panel">
+          <div class="panel-title">Manual Food Entry</div>
+          <div id="alert-manual" class="alert alert-error"></div>
+
+          <label>Food Name *</label>
+          <input type="text" id="manual-name" placeholder="e.g. Homemade pasta"/>
+
+          <div class="grid-2">
+            <div>
+              <label>Serving Size</label>
+              <input type="number" id="manual-serving" placeholder="100" min="1"/>
+            </div>
+            <div>
+              <label>Unit</label>
+              <select id="manual-unit">
+                <option value="g">grams (g)</option>
+                <option value="ml">milliliters (ml)</option>
+                <option value="oz">ounces (oz)</option>
+                <option value="cup">cup</option>
+                <option value="tbsp">tablespoon</option>
+                <option value="tsp">teaspoon</option>
+                <option value="piece">piece / item</option>
+              </select>
+            </div>
+          </div>
+
+          <label>Calories (kcal) *</label>
+          <input type="number" id="manual-calories" placeholder="e.g. 250" min="0" max="99999"/>
+
+          <div class="grid-3">
+            <div>
+              <label>Protein (g)</label>
+              <input type="number" id="manual-protein" placeholder="0" min="0"/>
+            </div>
+            <div>
+              <label>Carbs (g)</label>
+              <input type="number" id="manual-carbs" placeholder="0" min="0"/>
+            </div>
+            <div>
+              <label>Fat (g)</label>
+              <input type="number" id="manual-fat" placeholder="0" min="0"/>
+            </div>
+          </div>
+
+          <label>Meal</label>
+          <select id="manual-meal">
+            <option>Breakfast</option>
+            <option>Lunch</option>
+            <option selected>Dinner</option>
+            <option>Snack</option>
+          </select>
+
+          <button class="btn btn-primary" onclick="addManualEntry()">Add to Log</button>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:1.5rem">Today's Log</div>
+      <div id="log-list"><div class="empty-state">No entries yet.</div></div>
+
+    </div>
+  </div>
+
+  <!-- GOAL MODAL -->
+  <div class="modal-overlay" id="goal-modal">
+    <div class="modal-box">
+      <div class="modal-title">Set Your Calorie Goal</div>
+      <div class="modal-sub">You can update this any time.</div>
+      <label>Daily Calorie Goal (kcal)</label>
+      <input type="number" id="modal-goal" placeholder="e.g. 2000" min="500" max="9999"/>
+      <button class="btn btn-primary" onclick="saveGoal()">Save Goal</button>
+    </div>
+  </div>
+
+  <!-- ADD FROM SEARCH MODAL -->
+  <div class="modal-overlay" id="add-food-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="add-food-title">Add Food</div>
+      <div class="modal-sub" id="add-food-subtitle"></div>
+      <div id="alert-add-food" class="alert alert-error"></div>
+      <label>Serving Size (g)</label>
+      <input type="number" id="add-food-serving" placeholder="100" min="1" value="100"/>
+      <label>Meal</label>
+      <select id="add-food-meal">
+        <option>Breakfast</option>
+        <option>Lunch</option>
+        <option selected>Dinner</option>
+        <option>Snack</option>
+      </select>
+      <div style="display:flex;gap:0.75rem;margin-top:0.5rem">
+        <button class="btn btn-outline" onclick="closeAddFoodModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmAddFood()">Add to Log</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+/* ╔══════════════════════════════════════════════╗
+   ║  ★  STEP 1: PASTE YOUR FIREBASE CONFIG HERE ║
+   ╚══════════════════════════════════════════════╝
+   Go to Firebase Console → Project Settings → Your apps
+   Copy the firebaseConfig object and paste it below.             */
+
+const CONFIG = {
+  firebase: {
+    apiKey:            "PASTE_YOUR_FIREBASE_API_KEY_HERE",
+    authDomain:        "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
+    projectId:         "PASTE_YOUR_PROJECT_ID",
+    storageBucket:     "PASTE_YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "PASTE_YOUR_SENDER_ID",
+    appId:             "PASTE_YOUR_APP_ID"
+  },
+
+  /* ╔══════════════════════════════════════════════╗
+     ║  ★  STEP 2: PASTE YOUR USDA API KEY HERE    ║
+     ╚══════════════════════════════════════════════╝
+     Free key at: https://fdc.nal.usda.gov/api-guide.html
+     "DEMO_KEY" works but is heavily rate-limited.              */
+  usdaApiKey: "DEMO_KEY",
+};
+
+/* ─── INIT FIREBASE ─── */
+firebase.initializeApp(CONFIG.firebase);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+/* ─── STATE ─── */
+let currentUser  = null;
+let userGoal     = 2000;
+let currentDate  = todayStr();
+let pendingFood  = null;
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/* ─────────────────────────────────────────────
+   AUTH
+───────────────────────────────────────────── */
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    currentUser = user;
+    document.getElementById('nav-user-name').textContent = user.displayName || user.email;
+    showScreen('main');
+    await loadUserProfile();
+    renderDate();
+    loadLog();
+  } else {
+    currentUser = null;
+    showScreen('auth');
+  }
+});
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(name + '-screen').classList.add('active');
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) =>
+    b.classList.toggle('active', (i === 0 && tab === 'login') || (i === 1 && tab === 'signup'))
+  );
+  document.getElementById('login-form').style.display  = tab === 'login'  ? '' : 'none';
+  document.getElementById('signup-form').style.display = tab === 'signup' ? '' : 'none';
+  clearAuthAlert();
+}
+
+function showAuthAlert(msg) {
+  const el = document.getElementById('auth-alert');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function clearAuthAlert() {
+  const el = document.getElementById('auth-alert');
+  el.textContent = '';
+  el.classList.remove('show');
+}
+
+async function signIn() {
+  const email    = (document.getElementById('login-email').value    || '').trim();
+  const password = (document.getElementById('login-password').value || '');
+  if (!email)    { showAuthAlert('Please enter your email address.');    return; }
+  if (!password) { showAuthAlert('Please enter your password.');         return; }
+  try {
+    await auth.signInWithEmailAndPassword(email, password);
+  } catch (e) {
+    showAuthAlert(friendlyAuthError(e));
+  }
+}
+
+async function signUp() {
+  const name     = (document.getElementById('signup-name').value     || '').trim();
+  const email    = (document.getElementById('signup-email').value    || '').trim();
+  const password = (document.getElementById('signup-password').value || '');
+  const goalRaw  = document.getElementById('signup-goal').value;
+  const goal     = parseInt(goalRaw, 10) || 2000;
+
+  if (!name)            { showAuthAlert('Please enter your name.');                                     return; }
+  if (!email)           { showAuthAlert('Please enter a valid email address.');                         return; }
+  if (password.length < 6) { showAuthAlert('Password must be at least 6 characters.');                 return; }
+  if (goal < 500 || goal > 9999) { showAuthAlert('Please enter a calorie goal between 500 and 9999.'); return; }
+
+  try {
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    await cred.user.updateProfile({ displayName: name });
+    await db.collection('users').doc(cred.user.uid).set({
+      name,
+      goal,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    showAuthAlert(friendlyAuthError(e));
+  }
+}
+
+async function signOut() {
+  await auth.signOut();
+}
+
+function friendlyAuthError(e) {
+  const map = {
+    'auth/user-not-found':        'No account found with that email.',
+    'auth/wrong-password':        'Incorrect password.',
+    'auth/email-already-in-use':  'An account with that email already exists.',
+    'auth/invalid-email':         'Please enter a valid email address.',
+    'auth/weak-password':         'Password must be at least 6 characters.',
+    'auth/network-request-failed':'Network error — check your connection.',
+    'auth/invalid-credential':    'Email or password is incorrect.',
+    'auth/too-many-requests':     'Too many attempts. Please wait a moment and try again.',
+  };
+  return map[e.code] || ('Error: ' + (e.message || 'Something went wrong.'));
+}
+
+/* ─────────────────────────────────────────────
+   USER PROFILE
+───────────────────────────────────────────── */
+async function loadUserProfile() {
+  try {
+    const doc = await db.collection('users').doc(currentUser.uid).get();
+    if (doc.exists && doc.data().goal) {
+      userGoal = doc.data().goal;
+    } else {
+      document.getElementById('goal-modal').classList.add('show');
+    }
+    updateGoalUI();
+  } catch (e) {
+    console.error('Error loading profile:', e);
+  }
+}
+
+async function saveGoal() {
+  const raw  = document.getElementById('modal-goal').value;
+  const goal = parseInt(raw, 10);
+  if (!goal || goal < 500 || goal > 9999) {
+    showToast('Enter a valid goal between 500 and 9999 kcal', 'error');
+    return;
+  }
+  userGoal = goal;
+  await db.collection('users').doc(currentUser.uid).set({ goal }, { merge: true });
+  document.getElementById('goal-modal').classList.remove('show');
+  updateGoalUI();
+  loadLog();
+}
+
+function updateGoalUI() {
+  document.getElementById('stat-goal').textContent = userGoal + ' kcal';
+}
+
+/* ─────────────────────────────────────────────
+   DATE NAV
+───────────────────────────────────────────── */
+function renderDate() {
+  if (currentDate === todayStr()) {
+    document.getElementById('current-date-label').textContent = 'Today';
+  } else {
+    const d = new Date(currentDate + 'T12:00:00');
+    document.getElementById('current-date-label').textContent =
+      d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+}
+
+function changeDate(dir) {
+  const d = new Date(currentDate + 'T12:00:00');
+  d.setDate(d.getDate() + dir);
+  const newStr = d.toISOString().slice(0, 10);
+  if (newStr > todayStr()) { showToast("Can't log future dates", 'error'); return; }
+  currentDate = newStr;
+  renderDate();
+  loadLog();
+}
+
+/* ─────────────────────────────────────────────
+   FIRESTORE
+───────────────────────────────────────────── */
+function entriesRef() {
+  return db
+    .collection('users').doc(currentUser.uid)
+    .collection('logs').doc(currentDate)
+    .collection('entries');
+}
+
+async function loadLog() {
+  try {
+    const snap    = await entriesRef().orderBy('timestamp', 'asc').get();
+    const entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderLog(entries);
+    updateSummary(entries);
+  } catch (e) {
+    console.error('Error loading log:', e);
+  }
+}
+
+function renderLog(entries) {
+  const el = document.getElementById('log-list');
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty-state">No entries yet — search or manually add a food above.</div>';
+    return;
+  }
+  el.innerHTML = entries.map(e => `
+    <div class="log-item">
+      <div>
+        <div class="log-name">${esc(e.name)}</div>
+        <div class="log-meta">
+          ${esc(e.meal || '')} &middot; ${e.serving || ''}${esc(e.unit || 'g')}
+          ${e.protein ? ' &middot; P: ' + e.protein + 'g' : ''}
+          ${e.carbs   ? ' C: '   + e.carbs   + 'g' : ''}
+          ${e.fat     ? ' F: '   + e.fat     + 'g' : ''}
+        </div>
+      </div>
+      <div class="log-right">
+        <span class="log-cal">${e.calories} kcal</span>
+        <button class="delete-btn" onclick="deleteEntry('${e.id}')" title="Remove">&times;</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateSummary(entries) {
+  const totCal  = entries.reduce((s, e) => s + (Number(e.calories) || 0), 0);
+  const totProt = entries.reduce((s, e) => s + (Number(e.protein)  || 0), 0);
+  const totCarb = entries.reduce((s, e) => s + (Number(e.carbs)    || 0), 0);
+  const totFat  = entries.reduce((s, e) => s + (Number(e.fat)      || 0), 0);
+  const rem     = userGoal - totCal;
+  const isExceeded = totCal > userGoal;
+  const isApproaching = !isExceeded && rem > 0 && rem <= 250;
+
+  document.getElementById('ring-cal-consumed').textContent = totCal;
+  document.getElementById('stat-consumed').textContent     = totCal + ' kcal';
+  document.getElementById('stat-remaining').textContent    = isExceeded ? '+' + Math.abs(rem) + ' kcal' : rem + ' kcal';
+
+  const pct   = Math.min(totCal / userGoal, 1);
+  const circ  = 2 * Math.PI * 46;
+  const ring  = document.getElementById('ring-progress');
+  ring.style.strokeDashoffset = circ * (1 - pct);
+  ring.style.stroke           = isExceeded ? 'var(--danger)' : isApproaching ? 'var(--warn)' : 'var(--accent)';
+
+  /* Update Remaining Budget Display */
+  const remainingDisplay = document.getElementById('remaining-display');
+  const remainingText = document.getElementById('remaining-text');
+  const warningBanner = document.getElementById('warning-banner');
+  const warningIcon = document.getElementById('warning-icon');
+  const warningTextEl = document.getElementById('warning-text');
+
+  remainingDisplay.className = 'remaining-value';
+  warningBanner.className = 'warning-banner';
+
+  if (isExceeded) {
+    remainingDisplay.classList.add('danger');
+    remainingText.textContent = '+' + Math.abs(rem) + ' kcal over';
+    warningBanner.classList.add('show', 'exceeded');
+    warningIcon.textContent = '⚠️';
+    warningTextEl.textContent = "You've exceeded your daily calorie goal. Consider lighter meals for the rest of the day.";
+  } else if (isApproaching) {
+    remainingDisplay.classList.add('warning');
+    remainingText.textContent = rem + ' kcal';
+    warningBanner.classList.add('show', 'caution');
+    warningIcon.textContent = '⚡';
+    warningTextEl.textContent = "You're approaching your daily limit. Choose lighter options for your next meal.";
+  } else {
+    remainingDisplay.classList.add('safe');
+    remainingText.textContent = rem + ' kcal';
+  }
+
+  document.getElementById('macro-protein').textContent = totProt + 'g';
+  document.getElementById('macro-carbs').textContent   = totCarb + 'g';
+  document.getElementById('macro-fat').textContent     = totFat  + 'g';
+  document.getElementById('bar-protein').style.width = Math.min(totProt / 56  * 100, 100) + '%';
+  document.getElementById('bar-carbs').style.width   = Math.min(totCarb / 275 * 100, 100) + '%';
+  document.getElementById('bar-fat').style.width     = Math.min(totFat  / 78  * 100, 100) + '%';
+}
+
+/* Core add-entry with full validation — this is what was causing your errors */
+async function addEntry(raw) {
+  // ── Field validation ──────────────────────────────────────────────
+  const name = (raw.name || '').toString().trim();
+  if (!name) {
+    throw new Error('Food name is required. Please enter a name.');
+  }
+
+  const calories = Number(raw.calories);
+  if (raw.calories === '' || raw.calories === null || raw.calories === undefined) {
+    throw new Error('Calorie amount is required. Please enter a value.');
+  }
+  if (isNaN(calories) || calories < 0) {
+    throw new Error('Calories must be a number of 0 or more.');
+  }
+
+  // ── Build safe document (no undefined values — Firestore rejects them) ──
+  const entry = {
+    name:      name,
+    calories:  calories,
+    protein:   isNaN(Number(raw.protein)) ? 0 : Number(raw.protein)  || 0,
+    carbs:     isNaN(Number(raw.carbs))   ? 0 : Number(raw.carbs)    || 0,
+    fat:       isNaN(Number(raw.fat))     ? 0 : Number(raw.fat)      || 0,
+    serving:   isNaN(Number(raw.serving)) ? 1 : Number(raw.serving)  || 1,
+    unit:      raw.unit   ? String(raw.unit)   : 'g',
+    meal:      raw.meal   ? String(raw.meal)   : 'Snack',
+    source:    raw.source ? String(raw.source) : 'manual',
+    timestamp: new Date().toISOString(),
+  };
+
+  await entriesRef().add(entry);
+  await loadLog();
+  showToast('Added: ' + entry.name, 'success');
+}
+
+async function deleteEntry(id) {
+  try {
+    await entriesRef().doc(id).delete();
+    loadLog();
+    showToast('Entry removed', 'success');
+  } catch (e) {
+    showToast('Could not delete entry: ' + e.message, 'error');
+  }
+}
+
+/* ─────────────────────────────────────────────
+   SOURCE SWITCHER
+───────────────────────────────────────────── */
+function setSource(src) {
+  ['usda', 'fao', 'manual'].forEach(s => {
+    document.getElementById('chip-'   + s).classList.toggle('active', s === src);
+    document.getElementById('source-' + s).style.display = s === src ? '' : 'none';
+  });
+}
+
+/* ─────────────────────────────────────────────
+   USDA FOODDATA SEARCH
+───────────────────────────────────────────── */
+async function searchUSDA() {
+  const q = (document.getElementById('search-input').value || '').trim();
+  if (!q) { showToast('Please type something to search', 'error'); return; }
+
+  if (!CONFIG.usdaApiKey || CONFIG.usdaApiKey === 'PASTE_YOUR_USDA_KEY') {
+    document.getElementById('alert-usda-key').style.display = '';
+    return;
+  }
+
+  const btn = document.getElementById('usda-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  clearAlert('alert-search');
+  document.getElementById('search-results').innerHTML = '';
+
+  try {
+    const url  = 'https://api.nal.usda.gov/fdc/v1/foods/search?query='
+               + encodeURIComponent(q)
+               + '&pageSize=8&api_key='
+               + encodeURIComponent(CONFIG.usdaApiKey);
+    const res  = await fetch(url);
+
+    if (res.status === 403) throw new Error('USDA API key is invalid. Check your CONFIG.usdaApiKey value.');
+    if (res.status === 429) throw new Error('USDA rate limit reached. Wait a minute and try again.');
+    if (!res.ok)            throw new Error('USDA search failed (HTTP ' + res.status + ').');
+
+    const data = await res.json();
+    renderUSDAResults(data.foods || []);
+  } catch (e) {
+    showAlert('alert-search', e.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Search';
+  }
+}
+
+function renderUSDAResults(foods) {
+  const el = document.getElementById('search-results');
+  if (!foods.length) {
+    el.innerHTML = '<div class="empty-state">No results. Try a different search term.</div>';
+    return;
+  }
+
+  el.innerHTML = foods.map(f => {
+    const cal  = getNutrient(f.foodNutrients, 1008);
+    const prot = getNutrient(f.foodNutrients, 1003);
+    const carb = getNutrient(f.foodNutrients, 1005);
+    const fat  = getNutrient(f.foodNutrients, 1004);
+    const foodData = JSON.stringify({ name: f.description, caloriesPer100: cal, protein: prot, carbs: carb, fat: fat, source: 'USDA' });
+    return `
+      <div class="result-item" onclick='openAddFoodModal(${esc(foodData)})'>
+        <div>
+          <div class="result-name">${esc(f.description)}</div>
+          <div class="result-meta">${esc(f.brandOwner || f.foodCategory || '')}</div>
+          <div class="result-source">USDA FoodData Central</div>
+        </div>
+        <div class="result-cal">${Math.round(cal)} kcal / 100g</div>
+      </div>`;
+  }).join('');
+}
+
+function getNutrient(nutrients, id) {
+  if (!Array.isArray(nutrients)) return 0;
+  const n = nutrients.find(n => n.nutrientId === id || n.number === String(id));
+  return n ? Math.round((n.value || 0) * 10) / 10 : 0;
+}
+
+/* ─────────────────────────────────────────────
+   OPEN FOOD FACTS
+───────────────────────────────────────────── */
+async function searchFAO() {
+  const q = (document.getElementById('fao-search-input').value || '').trim();
+  if (!q) { showToast('Please type something to search', 'error'); return; }
+
+  const btn = document.getElementById('fao-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  document.getElementById('fao-results').innerHTML = '';
+
+  try {
+    const url = 'https://world.openfoodfacts.org/cgi/search.pl?search_terms='
+              + encodeURIComponent(q)
+              + '&search_simple=1&action=process&json=1&page_size=8'
+              + '&fields=product_name,brands,nutriments';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Open Food Facts search failed (HTTP ' + res.status + ').');
+    const data = await res.json();
+    renderFAOResults(data.products || []);
+  } catch (e) {
+    document.getElementById('fao-results').innerHTML =
+      '<div class="empty-state" style="color:var(--danger)">' + esc(e.message) + '</div>';
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Search';
+  }
+}
+
+function renderFAOResults(products) {
+  const el    = document.getElementById('fao-results');
+  const valid = (products || []).filter(p =>
+    p.product_name && p.nutriments && p.nutriments['energy-kcal_100g'] > 0
+  );
+  if (!valid.length) {
+    el.innerHTML = '<div class="empty-state">No results with nutrition data. Try another term.</div>';
+    return;
+  }
+
+  el.innerHTML = valid.map(p => {
+    const cal  = Math.round(p.nutriments['energy-kcal_100g']    || 0);
+    const prot = Math.round(p.nutriments['proteins_100g']        || 0);
+    const carb = Math.round(p.nutriments['carbohydrates_100g']   || 0);
+    const fat  = Math.round(p.nutriments['fat_100g']             || 0);
+    const foodData = JSON.stringify({ name: p.product_name, caloriesPer100: cal, protein: prot, carbs: carb, fat: fat, source: 'OpenFoodFacts' });
+    return `
+      <div class="result-item" onclick='openAddFoodModal(${esc(foodData)})'>
+        <div>
+          <div class="result-name">${esc(p.product_name)}</div>
+          <div class="result-meta">${esc(p.brands || '')}</div>
+          <div class="result-source">Open Food Facts</div>
+        </div>
+        <div class="result-cal">${cal} kcal / 100g</div>
+      </div>`;
+  }).join('');
+}
+
+/* ─────────────────────────────────────────────
+   ADD FROM SEARCH MODAL
+───────────────────────────────────────────── */
+function openAddFoodModal(food) {
+  if (typeof food === 'string') {
+    try { food = JSON.parse(food); } catch(e) { return; }
+  }
+  pendingFood = food;
+  document.getElementById('add-food-title').textContent    = food.name;
+  document.getElementById('add-food-subtitle').textContent = food.caloriesPer100 + ' kcal per 100g';
+  document.getElementById('add-food-serving').value        = '100';
+  clearAlert('alert-add-food');
+  document.getElementById('add-food-modal').classList.add('show');
+}
+
+function closeAddFoodModal() {
+  pendingFood = null;
+  document.getElementById('add-food-modal').classList.remove('show');
+}
+
+async function confirmAddFood() {
+  if (!pendingFood) return;
+
+  const serving = parseFloat(document.getElementById('add-food-serving').value);
+  const meal    = document.getElementById('add-food-meal').value;
+
+  if (!serving || isNaN(serving) || serving <= 0) {
+    showAlert('alert-add-food', 'Please enter a serving size greater than 0.');
+    return;
+  }
+
+  const factor = serving / 100;
+  try {
+    await addEntry({
+      name:     pendingFood.name,
+      calories: Math.round(pendingFood.caloriesPer100 * factor),
+      protein:  Math.round((pendingFood.protein || 0) * factor),
+      carbs:    Math.round((pendingFood.carbs   || 0) * factor),
+      fat:      Math.round((pendingFood.fat     || 0) * factor),
+      serving,
+      unit:     'g',
+      meal,
+      source:   pendingFood.source,
+    });
+    closeAddFoodModal();
+  } catch (e) {
+    showAlert('alert-add-food', e.message);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   MANUAL ENTRY — with full validation
+───────────────────────────────────────────── */
+async function addManualEntry() {
+  clearAlert('alert-manual');
+
+  const name     = (document.getElementById('manual-name').value     || '').trim();
+  const servingV = document.getElementById('manual-serving').value;
+  const unit     = document.getElementById('manual-unit').value;
+  const calV     = document.getElementById('manual-calories').value;
+  const protV    = document.getElementById('manual-protein').value;
+  const carbV    = document.getElementById('manual-carbs').value;
+  const fatV     = document.getElementById('manual-fat').value;
+  const meal     = document.getElementById('manual-meal').value;
+
+  // Validate before anything else
+  if (!name) {
+    showAlert('alert-manual', 'Food name is required.');
+    document.getElementById('manual-name').focus();
+    return;
+  }
+  if (calV === '' || calV === null) {
+    showAlert('alert-manual', 'Calorie amount is required.');
+    document.getElementById('manual-calories').focus();
+    return;
+  }
+  const calories = Number(calV);
+  if (isNaN(calories) || calories < 0) {
+    showAlert('alert-manual', 'Please enter a valid calorie amount (0 or more).');
+    document.getElementById('manual-calories').focus();
+    return;
+  }
+
+  try {
+    await addEntry({
+      name,
+      calories,
+      protein:  Number(protV)    || 0,
+      carbs:    Number(carbV)    || 0,
+      fat:      Number(fatV)     || 0,
+      serving:  Number(servingV) || 1,
+      unit,
+      meal,
+      source:   'manual',
+    });
+
+    // Clear form on success
+    ['manual-name', 'manual-serving', 'manual-calories',
+     'manual-protein', 'manual-carbs', 'manual-fat'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+  } catch (e) {
+    showAlert('alert-manual', e.message);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   UTILITIES
+───────────────────────────────────────────── */
+function showAlert(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function clearAlert(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = '';
+  el.classList.remove('show');
+}
+
+let toastTimer;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'show ' + (type || 'success');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 2800);
+}
+
+// Escape HTML — also used inside onclick= attributes to prevent injection
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;')
+    .replace(/'/g,  '&#39;');
+}
+
+/* Show API-key banner if key is still the placeholder */
+if (!CONFIG.usdaApiKey || CONFIG.usdaApiKey === 'DEMO_KEY') {
+  document.getElementById('alert-usda-key').style.display = '';
+}
+</script>
+</body>
+</html>
