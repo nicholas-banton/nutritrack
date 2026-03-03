@@ -10,6 +10,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
+<!-- Dynamic Configuration (loaded from environment variables) -->
+<script src="/config.js"></script>
+
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 
 <style>
@@ -597,7 +600,7 @@
    Go to Firebase Console → Project Settings → Your apps
    Copy the firebaseConfig object and paste it below.             */
 
-const CONFIG = {
+const CONFIG = window.NutritrackConfig || {
   firebase: {
     apiKey:            "AIzaSyDsA3gB7QcHOs4NAXQ5JyXJzXnJ1IQpFSA",
     authDomain:        "nutritrack-ai-94a87.firebaseapp.com",
@@ -620,6 +623,11 @@ firebase.initializeApp(CONFIG.firebase);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
+/* ─── SESSION PERSISTENCE ─── */
+/* Configure auth to persist across page refreshes */
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+  .catch(error => console.warn('Session persistence error:', error));
+
 /* ─── STATE ─── */
 let currentUser  = null;
 let userGoal     = 2000;
@@ -634,16 +642,24 @@ function todayStr() {
    AUTH
 ───────────────────────────────────────────── */
 auth.onAuthStateChanged(async user => {
-  if (user) {
-    currentUser = user;
-    document.getElementById('nav-user-name').textContent = user.displayName || user.email;
-    showScreen('main');
-    await loadUserProfile();
-    renderDate();
-    loadLog();
-  } else {
-    currentUser = null;
-    showScreen('auth');
+  try {
+    if (user) {
+      currentUser = user;
+      document.getElementById('nav-user-name').textContent = user.displayName || user.email;
+      showScreen('main');
+      await loadUserProfile().catch(error => {
+        console.warn('Profile load error:', error);
+        // Continue even if profile load fails
+      });
+      renderDate();
+      loadLog().catch(error => console.warn('Log load error:', error));
+    } else {
+      currentUser = null;
+      showScreen('auth');
+    }
+  } catch (error) {
+    console.error('Auth state change error:', error);
+    showAuthAlert('Connection issue. Please refresh the page.');
   }
 });
 
@@ -710,7 +726,13 @@ async function signUp() {
 }
 
 async function signOut() {
-  await auth.signOut();
+  try {
+    await auth.signOut();
+    currentUser = null;
+  } catch (error) {
+    console.error('Sign out error:', error);
+    showAuthAlert('Error signing out. Please try again.');
+  }
 }
 
 function friendlyAuthError(e) {
@@ -720,9 +742,12 @@ function friendlyAuthError(e) {
     'auth/email-already-in-use':  'An account with that email already exists.',
     'auth/invalid-email':         'Please enter a valid email address.',
     'auth/weak-password':         'Password must be at least 6 characters.',
-    'auth/network-request-failed':'Network error — check your connection.',
+    'auth/network-request-failed':'Network error — check your internet connection.',
     'auth/invalid-credential':    'Email or password is incorrect.',
     'auth/too-many-requests':     'Too many attempts. Please wait a moment and try again.',
+    'auth/operation-not-allowed': 'This operation is not supported. Please try again later.',
+    'auth/internal-error':        'Server error. Please try again in a moment.',
+    'auth/service-unavailable':   'Service temporarily unavailable. Please try again.',
   };
   return map[e.code] || ('Error: ' + (e.message || 'Something went wrong.'));
 }
