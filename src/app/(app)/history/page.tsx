@@ -79,7 +79,7 @@ export default function HistoryPage() {
     );
   }, [user, dateId, activeProfileId]);
 
-  const [entries, loading, error] = useCollectionData(entriesQuery, { idField: 'id' });
+  const [entries, loading, error] = useCollectionData(entriesQuery);
 
   return (
     <div className="flex flex-col gap-6 pb-8">
