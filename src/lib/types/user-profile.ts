@@ -1,3 +1,9 @@
+export interface WeightEntry {
+  date: string; // ISO date string (YYYY-MM-DD)
+  weightLbs: number;
+  notes?: string;
+}
+
 export interface UserProfile {
   name: string;
   age: number;
@@ -6,6 +12,10 @@ export interface UserProfile {
   currentWeightLbs: number; // Changed from currentWeightKg to imperial (pounds)
   goalWeightLbs: number; // Changed from goalWeightKg to imperial (pounds)
   goalWeightDate?: string; // ISO date string (YYYY-MM-DD)
+  
+  // Weight tracking
+  weightHistory?: WeightEntry[]; // Array of historical weigh-ins
+  lastWeighInDate?: string; // ISO date string
   
   // Calculated fields
   bmi?: number;

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { collection, query, orderBy, doc, getDoc, deleteDoc, updateDoc, getDocs, setDoc, where } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
-import { Camera, Utensils, Flame, AlertCircle, CheckCircle, TrendingUp, Zap, Trash2, Edit2, X, Loader2 } from 'lucide-react';
+import { Camera, Utensils, Flame, AlertCircle, CheckCircle, TrendingUp, Zap, Trash2, Edit2, X, Loader2, Activity } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { FoodEntry } from '@/lib/types/food-entry';
-import type { UserProfile } from '@/lib/types/user-profile';
+import type { UserProfile, WeightEntry } from '@/lib/types/user-profile';
+import { calculateMacroGoals } from '@/lib/types/user-profile';
 
 const DEFAULT_GOALS = { calories: 2000, protein: 150, carbs: 250, fat: 65 };
 
@@ -182,6 +183,91 @@ function EditMealModal({ entry, isOpen, onClose, onSave }: EditMealModalProps) {
   );
 }
 
+interface WeightEntryModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (weightLbs: number, notes?: string) => Promise<void>;
+  currentWeight?: number;
+  isLoading?: boolean;
+  error?: string;
+}
+
+function WeightEntryModal({ isOpen, onClose, onSave, currentWeight, isLoading, error }: WeightEntryModalProps) {
+  const [weight, setWeight] = useState('');
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (isOpen && currentWeight) {
+      setWeight(String(currentWeight));
+      setNotes('');
+    }
+  }, [isOpen, currentWeight]);
+
+  if (!isOpen) return null;
+
+  const handleSave = async () => {
+    const weightLbs = parseFloat(weight);
+    if (weightLbs > 50 && weightLbs < 1000) {
+      await onSave(weightLbs, notes);
+      setWeight('');
+      setNotes('');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Log Weight</h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg" disabled={isLoading}>
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-600">Enter your current weight to update your calorie goals.</p>
+
+        <div className="space-y-2">
+          <Label>Weight (lbs)</Label>
+          <Input
+            type="number"
+            value={weight}
+            onChange={e => setWeight(e.target.value)}
+            min="50"
+            max="999"
+            step="0.1"
+            disabled={isLoading}
+            placeholder="e.g. 180"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Notes (optional)</Label>
+          <Input
+            type="text"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            disabled={isLoading}
+            placeholder="How do you feel?"
+          />
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-900">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1" disabled={isLoading}>Cancel</Button>
+          <Button onClick={handleSave} className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
+            {isLoading ? 'Saving...' : 'Save Weight'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getNutritionAlerts(totals: any, goals: any) {
   const alerts = [];
   const proteinPercent = (totals.protein / goals.protein) * 100;
@@ -264,6 +350,9 @@ export default function DashboardPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [clearAllConfirm, setClearAllConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showWeightEntry, setShowWeightEntry] = useState(false);
+  const [weightEntryLoading, setWeightEntryLoading] = useState(false);
+  const [weightEntryError, setWeightEntryError] = useState<string | null>(null);
 
   // Load all profiles for the dropdown
   useEffect(() => {
@@ -435,6 +524,74 @@ export default function DashboardPage() {
 
   const calPct = Math.min(totals.calories / DAILY_GOALS.calories, 1);
 
+  // Weight entry handler
+  const handleSaveWeight = async (weightLbs: number, notes?: string) => {
+    if (!user || !userProfile || !activeProfileId) return;
+    
+    setWeightEntryLoading(true);
+    setWeightEntryError(null);
+    
+    try {
+      const weightEntry: WeightEntry = {
+        date: today,
+        weightLbs,
+        notes,
+      };
+      
+      // Update current weight and add to history
+      const updatedProfile: UserProfile = {
+        ...userProfile,
+        currentWeightLbs: weightLbs,
+        lastWeighInDate: today,
+        weightHistory: [
+          ...(userProfile.weightHistory || []).filter(w => w.date !== today),
+          weightEntry,
+        ],
+      };
+      
+      // Recalculate macro goals with new weight
+      const newMacroGoals = calculateMacroGoals(
+        userProfile.age,
+        userProfile.sex,
+        userProfile.heightInches,
+        weightLbs,
+        userProfile.goalWeightLbs,
+        userProfile.goalWeightDate
+      );
+      
+      updatedProfile.dailyCalorieGoal = newMacroGoals.dailyCalorieGoal;
+      updatedProfile.dailyProteinGoal = newMacroGoals.dailyProteinGoal;
+      updatedProfile.dailyCarbsGoal = newMacroGoals.dailyCarbsGoal;
+      updatedProfile.dailyFatGoal = newMacroGoals.dailyFatGoal;
+      updatedProfile.dailyCalorieAdjustment = newMacroGoals.dailyCalorieAdjustment;
+      updatedProfile.weeklyWeightChange = newMacroGoals.weeklyWeightChange;
+      
+      // Save to Firebase
+      const profilePath = activeProfileId === 'main' 
+        ? doc(db, 'users', user.uid, 'profile', 'settings')
+        : doc(db, 'users', user.uid, 'profiles', activeProfileId);
+      
+      await updateDoc(profilePath, {
+        currentWeightLbs: weightLbs,
+        lastWeighInDate: today,
+        weightHistory: updatedProfile.weightHistory,
+        dailyCalorieGoal: newMacroGoals.dailyCalorieGoal,
+        dailyProteinGoal: newMacroGoals.dailyProteinGoal,
+        dailyCarbsGoal: newMacroGoals.dailyCarbsGoal,
+        dailyFatGoal: newMacroGoals.dailyFatGoal,
+        dailyCalorieAdjustment: newMacroGoals.dailyCalorieAdjustment,
+        weeklyWeightChange: newMacroGoals.weeklyWeightChange,
+      });
+      
+      setUserProfile(updatedProfile);
+      setShowWeightEntry(false);
+      setWeightEntryLoading(false);
+    } catch (e: any) {
+      setWeightEntryError(e.message || 'Failed to save weight');
+      setWeightEntryLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6 pb-8">
       {/* PROFILE SELECTOR */}
@@ -549,6 +706,64 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      {/* WEIGHT TRACKER CARD */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Weight Tracking</span>
+            <button
+              onClick={() => setShowWeightEntry(true)}
+              className="text-xs font-semibold px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              Log Weight
+            </button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Current Weight</p>
+              <p className="text-xl font-bold mt-1">{userProfile?.currentWeightLbs || '—'} lbs</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Goal Weight</p>
+              <p className="text-xl font-bold mt-1">{userProfile?.goalWeightLbs || '—'} lbs</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Daily Calorie Goal</p>
+              <p className="text-xl font-bold mt-1">{DAILY_GOALS.calories} kcal</p>
+            </div>
+          </div>
+
+          {/* Recent Weigh-ins */}
+          {userProfile?.weightHistory && userProfile.weightHistory.length > 0 && (
+            <div className="pt-4 border-t">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Recent Weigh-ins</p>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {[...userProfile.weightHistory]
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .slice(0, 5)
+                  .map((entry) => (
+                    <div key={entry.date} className="flex items-center justify-between text-sm p-2 rounded-lg bg-gray-50">
+                      <div>
+                        <p className="font-medium">{entry.weightLbs} lbs</p>
+                        <p className="text-xs text-gray-500">{format(new Date(entry.date), 'MMM d, yyyy')}</p>
+                      </div>
+                      {entry.notes && <p className="text-xs text-gray-600 italic">{entry.notes}</p>}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {!userProfile?.weightHistory || userProfile.weightHistory.length === 0 && (
+            <div className="text-center py-4 text-gray-500">
+              <p className="text-sm">No weigh-ins yet. Log your first weight!</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Calories Remaining Warning */}
       {!loading && (isExceeded || isApproaching) && (
         <div className={`p-4 rounded-lg border flex gap-3 ${
@@ -619,6 +834,19 @@ export default function DashboardPage() {
             }
           }
         }}
+      />
+
+      {/* WEIGHT ENTRY MODAL */}
+      <WeightEntryModal
+        isOpen={showWeightEntry}
+        onClose={() => {
+          setShowWeightEntry(false);
+          setWeightEntryError(null);
+        }}
+        onSave={handleSaveWeight}
+        currentWeight={userProfile?.currentWeightLbs}
+        isLoading={weightEntryLoading}
+        error={weightEntryError || undefined}
       />
 
       {/* DELETE CONFIRMATION MODAL */}
