@@ -247,6 +247,9 @@ export default function LogPage() {
   const [textInput, setTextInput] = useState('');
   const [textAnalyzing, setTextAnalyzing] = useState(false);
 
+  // Date picker state for logging past meals
+  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+
   // Nutrition feedback state
   const [feedback, setFeedback] = useState<any>(null);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -423,7 +426,7 @@ export default function LogPage() {
       let imageUrl: string | null = null;
       console.log('[LOG_PAGE_SAVE] Skipping image upload (not required for food entry)');
       
-      const today = format(new Date(), 'yyyy-MM-dd');
+      // Use selectedDate instead of today to support logging past meals
       const entryData = {
         ...result, 
         imageUrl,  // Will be null, but that's okay
@@ -433,16 +436,16 @@ export default function LogPage() {
       
       console.log('[LOG_PAGE_SAVE] Saving food entry to Firestore:', {
         entryData: { ...entryData, createdAt: '[timestamp]' },
-        path: `users/${user.uid}/days/${today}/entries`,
+        path: `users/${user.uid}/days/${selectedDate}/entries`,
       });
       
-      await addDoc(collection(db, 'users', user.uid, 'days', today, 'entries'), entryData);
+      await addDoc(collection(db, 'users', user.uid, 'days', selectedDate, 'entries'), entryData);
       console.log('[LOG_PAGE_SAVE] ✅ Entry saved successfully');
       
-      // Fetch all entries for today to get daily totals
-      console.log('[LOG_PAGE_SAVE] Fetching all entries for today to calculate totals...');
+      // Fetch all entries for the selected date to get daily totals
+      console.log('[LOG_PAGE_SAVE] Fetching all entries for date to calculate totals...');
       const { getDocs, query, where } = await import('firebase/firestore');
-      const entriesRef = collection(db, 'users', user.uid, 'days', today, 'entries');
+      const entriesRef = collection(db, 'users', user.uid, 'days', selectedDate, 'entries');
       const entriesSnapshot = await getDocs(entriesRef);
       
       let totalCalories = 0;
@@ -544,6 +547,20 @@ export default function LogPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Log Food</h1>
         </div>
+      </div>
+
+      {/* Date picker */}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="log-date" className="text-sm font-medium text-gray-700">
+          Logging for: {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+        </Label>
+        <Input
+          id="log-date"
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="max-w-xs"
+        />
       </div>
 
       {/* Mode toggle */}
