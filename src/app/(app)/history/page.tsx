@@ -28,11 +28,17 @@ const EntryCard = ({
   onDelete: (entryId: string) => Promise<void>;
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this entry?')) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       await onDelete(entry.id);
+    } catch (e: any) {
+      const errorMsg = e?.message || 'Failed to delete entry. Please try again.';
+      setDeleteError(errorMsg);
+      console.error('Delete error:', e);
     } finally {
       setIsDeleting(false);
     }
@@ -74,6 +80,7 @@ const EntryCard = ({
           </Button>
         </div>
       </div>
+      {deleteError && <div className="p-3 bg-red-50 border-t border-red-200 text-sm text-red-700">{deleteError}</div>}
     </Card>
   );
 };
@@ -374,16 +381,17 @@ export default function HistoryPage() {
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!user) return;
+    if (!user) {
+      throw new Error('Not authenticated');
+    }
     try {
       const entryRef = doc(db, 'users', user.uid, 'days', dateId, 'entries', entryId);
       await deleteDoc(entryRef);
     } catch (e: any) {
       console.error('Failed to delete entry:', e);
-      alert('Failed to delete entry. Please try again.');
+      throw new Error('Failed to delete entry. Please try again.');
     }
   };
-
   return (
     <div className="flex flex-col gap-6 pb-8">
       <div>
