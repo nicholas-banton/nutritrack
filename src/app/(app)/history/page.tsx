@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
-import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { useCollectionData } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
 import { Utensils, Image as ImageIcon, Loader2, TrendingDown, TrendingUp, Edit2, Trash2, X, Check } from 'lucide-react';
@@ -366,46 +366,43 @@ export default function HistoryPage() {
     loadActiveProfile();
   }, [user]);
 
-  const entriesQuery = useMemo(() => {
-    if (!user || !activeProfileId) return null;
-    return query(
-      collection(db, 'users', user.uid, 'days', dateId, 'entries'),
-      where('profileId', '==', activeProfileId),
-      orderBy('createdAt', 'desc')
-    );
-  }, [user, dateId, activeProfileId]);
-
-  // Get raw Firestore data with document references
-  const [rawEntries, loading, error] = useCollectionData(entriesQuery);
-  
-  // Map entries to ensure they have proper IDs from Firestore
-  // Since useCollectionData doesn't automatically add document IDs reliably,
-  // we need to use a different approach
+  // State for entries with proper IDs
   const [entries, setEntries] = useState<(FoodEntry & { id: string })[]>([]);
-  
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  // Load entries with their actual Firestore IDs
   useEffect(() => {
-    if (!user || !activeProfileId) return;
-    
-    // Use onSnapshot to get documents with IDs
-    const unsubscribe = onSnapshot(
-      query(
-        collection(db, 'users', user.uid, 'days', dateId, 'entries'),
-        where('profileId', '==', activeProfileId),
-        orderBy('createdAt', 'desc')
-      ),
-      (snapshot) => {
-        const mappedEntries = snapshot.docs.map((doc) => ({
-          ...doc.data() as FoodEntry,
-          id: doc.id, // Explicitly get the document ID
+    if (!user || !activeProfileId) {
+      setLoading(false);
+      return;
+    }
+
+    const loadEntries = async () => {
+      try {
+        setLoading(true);
+        const q = query(
+          collection(db, 'users', user.uid, 'days', dateId, 'entries'),
+          where('profileId', '==', activeProfileId),
+          orderBy('createdAt', 'desc')
+        );
+        const snapshot = await getDocs(q);
+        const entriesData = snapshot.docs.map((doc) => ({
+          ...(doc.data() as FoodEntry),
+          id: doc.id, // Firestore document ID
         }));
-        setEntries(mappedEntries as (FoodEntry & { id: string })[]);
-      },
-      (error) => {
-        console.error('Error fetching entries:', error);
+        setEntries(entriesData);
+        setError(null);
+      } catch (e: any) {
+        console.error('[ENTRIES_LOAD] Error loading entries:', e);
+        setError(e);
+        setEntries([]);
+      } finally {
+        setLoading(false);
       }
-    );
-    
-    return () => unsubscribe();
+    };
+
+    loadEntries();
   }, [user, dateId, activeProfileId]);
 
   const handleEditEntry = (entry: FoodEntry) => {
