@@ -13,7 +13,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { identifyFood } from '@/ai/flows/identify-food';
 import type { UserProfile } from '@/lib/types/user-profile';
 
 type Step = 'capture' | 'analyzing' | 'confirm' | 'saving' | 'done';
@@ -255,7 +254,28 @@ export default function LogPage() {
         throw new Error('Failed to process image. Please try a different photo.');
       }
 
-      const identified = await identifyFood({ photoDataUri: dataUri });
+      console.log('[LOG_PAGE] Sending image to AI for analysis...');
+      const response = await fetch('/api/identify-food', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoDataUri: dataUri }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to analyze image';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.warn('[LOG_PAGE] Failed to parse error response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      const identified = await response.json();
+      console.log('[LOG_PAGE] AI analysis successful:', { foodName: identified.foodName });
       setResult(identified);
       setStep('confirm');
     } catch (e: any) {
