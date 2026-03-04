@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
 
     let result;
     try {
+      console.log('[ANALYZE_FOOD] About to call AI with model: gemini-1.5-pro');
       const response = await ai.generate({
         model: 'gemini-1.5-pro',
         output: { schema: FoodResultSchema },
@@ -46,7 +47,7 @@ Estimate the total nutrition for everything described and return a JSON object w
 Be accurate and account for all items mentioned. Return valid JSON only.`,
       });
       result = response.output;
-      console.log('[ANALYZE_FOOD] AI response received successfully:', { foodName: result?.foodName });
+      console.log('[ANALYZE_FOOD] ✅ AI response received successfully:', { foodName: result?.foodName });
     } catch (aiError: any) {
       const errorMessage = aiError.message || aiError.toString();
       const errorCode = aiError.code || 'UNKNOWN';
@@ -60,6 +61,8 @@ Be accurate and account for all items mentioned. Return valid JSON only.`,
         fullError: JSON.stringify(aiError, null, 2),
         errorKeys: Object.keys(aiError),
         errorToString: aiError.toString(),
+        errorResponse: aiError.response ? JSON.stringify(aiError.response) : 'no response object',
+        errorData: aiError.data ? JSON.stringify(aiError.data) : 'no data object',
       });
       
       // More precise error detection
@@ -83,8 +86,9 @@ Be accurate and account for all items mentioned. Return valid JSON only.`,
         );
       }
       if (errorMessage.includes('model') || errorMessage.includes('not found')) {
+        console.error('[ANALYZE_FOOD] Model not available error - checking what went wrong');
         return NextResponse.json(
-          { error: 'AI model not available. Please try again later.' },
+          { error: `AI model error: ${errorMessage}. Please try again later.` },
           { status: 503 }
         );
       }

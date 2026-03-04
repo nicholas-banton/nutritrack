@@ -80,6 +80,8 @@ Be specific with the food name. Return ONLY valid JSON, no other text.`,
         fullError: JSON.stringify(aiError, null, 2),
         errorKeys: Object.keys(aiError),
         errorToString: aiError.toString(),
+        errorResponse: aiError.response ? JSON.stringify(aiError.response) : 'no response object',
+        errorData: aiError.data ? JSON.stringify(aiError.data) : 'no data object',
       });
 
       // Check for specific error types
@@ -100,6 +102,13 @@ Be specific with the food name. Return ONLY valid JSON, no other text.`,
         return NextResponse.json(
           { error: 'Image format not supported or image is not a valid photo. Please try a different image.' },
           { status: 400 }
+        );
+      }
+      if (errorMessage.includes('model') || errorMessage.includes('not found')) {
+        console.error('[IDENTIFY_FOOD_API] Model not available error');
+        return NextResponse.json(
+          { error: `AI model error: ${errorMessage}. Please try again later.` },
+          { status: 503 }
         );
       }
 
