@@ -418,23 +418,15 @@ export default function LogPage() {
       const profileId = await ensureUserProfile(user.uid);
       console.log('[LOG_PAGE_SAVE] ✅ Profile check complete, profileId:', profileId);
       
+      // Skip image upload - we don't need the actual photo since AI already analyzed it
+      // The nutrition data is what matters, not the image
       let imageUrl: string | null = null;
-      if (imageFile) {
-        console.log('[LOG_PAGE_SAVE] Uploading image to Firebase Storage...');
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const ext = imageFile.name.split('.').pop() || 'jpg';
-        const storageRef = ref(storage, `users/${user.uid}/food-images/${today}/${Date.now()}.${ext}`);
-        await uploadBytes(storageRef, imageFile);
-        imageUrl = await getDownloadURL(storageRef);
-        console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully, URL length:', imageUrl.length);
-      } else {
-        console.log('[LOG_PAGE_SAVE] No image file, proceeding with text-only entry');
-      }
+      console.log('[LOG_PAGE_SAVE] Skipping image upload (not required for food entry)');
       
       const today = format(new Date(), 'yyyy-MM-dd');
       const entryData = {
         ...result, 
-        imageUrl, 
+        imageUrl,  // Will be null, but that's okay
         createdAt: serverTimestamp(), 
         profileId: profileId || activeProfileId || 'main',
       };
