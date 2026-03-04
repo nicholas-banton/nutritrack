@@ -157,13 +157,17 @@ async function analyzeFoodText(description: string): Promise<FoodResult> {
 // Ensure user has a profile document (safety check for users who signed up before profile auto-creation)
 async function ensureUserProfile(uid: string): Promise<string> {
   try {
+    console.log('[ENSURE_PROFILE] Checking if profile exists for user:', uid);
     const profileDoc = await getDoc(doc(db, 'users', uid, 'profile', 'settings'));
+    
     if (profileDoc.exists()) {
-      return profileDoc.data().profileId || 'main';
+      const profileData = profileDoc.data();
+      console.log('[ENSURE_PROFILE] ✅ Profile exists, profileId:', profileData.profileId || 'main');
+      return profileData.profileId || 'main';
     }
     
     // Profile doesn't exist - create default one
-    console.warn('[LOG_PAGE] Profile missing for user, creating default profile');
+    console.warn('[ENSURE_PROFILE] Profile missing for user, creating default profile');
     const defaultProfile = {
       name: 'User',
       age: 25,
@@ -189,11 +193,21 @@ async function ensureUserProfile(uid: string): Promise<string> {
       ...macroGoals,
     };
     
+    console.log('[ENSURE_PROFILE] Creating new profile with goals:', {
+      profileId: profileWithGoals.profileId,
+      dailyCalorieGoal: profileWithGoals.dailyCalorieGoal,
+    });
+    
     await setDoc(doc(db, 'users', uid, 'profile', 'settings'), profileWithGoals);
-    console.log('[LOG_PAGE] Created missing profile for user:', uid);
+    console.log('[ENSURE_PROFILE] ✅ Created missing profile for user:', uid);
     return 'main';
   } catch (error: any) {
-    console.error('[LOG_PAGE] Failed to ensure profile exists:', error.message);
+    console.error('[ENSURE_PROFILE] ❌ Failed to ensure profile exists:', {
+      error: error.message,
+      errorCode: error.code,
+      uid,
+      errorStack: error.stack?.substring(0, 300),
+    });
     return 'main'; // Return main as fallback
   }
 }
@@ -288,24 +302,35 @@ export default function LogPage() {
   const handleImage = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) { setError('Please upload an image file.'); return; }
     if (file.size > MAX_FILE_SIZE) { setError(`Image is too large. Maximum size is 20 MB (your file is ${(file.size / 1024 / 1024).toFixed(1)} MB).`); return; }
+    
+    console.log('[LOG_PAGE_CAMERA] Image file selected:', {
+      fileName: file.name,
+      fileSize: (file.size / 1024 / 1024).toFixed(2) + 'MB',
+      fileType: file.type,
+    });
+    
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
     setError(null);
     setStep('analyzing');
     try {
+      console.log('[LOG_PAGE_CAMERA] Converting image to data URI...');
       const dataUri = await toCompatibleDataUri(file);
       
       if (!dataUri) {
         throw new Error('Failed to process image. Please try a different photo.');
       }
 
-      console.log('[LOG_PAGE] Sending image to AI for analysis...');
+      console.log('[LOG_PAGE_CAMERA] ✅ Data URI created, size:', (dataUri.length / 1024 / 1024).toFixed(2) + 'MB');
+      console.log('[LOG_PAGE_CAMERA] Sending image to AI for analysis...');
       const response = await fetch('/api/identify-food', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ photoDataUri: dataUri }),
       });
 
+      console.log('[LOG_PAGE_CAMERA] AI response status:', response.status);
+      
       if (!response.ok) {
         let errorMessage = 'Failed to analyze image';
         try {
@@ -314,20 +339,25 @@ export default function LogPage() {
             errorMessage = errorData.error;
           }
         } catch (parseError) {
-          console.warn('[LOG_PAGE] Failed to parse error response:', parseError);
+          console.warn('[LOG_PAGE_CAMERA] Failed to parse error response:', parseError);
         }
         throw new Error(errorMessage);
       }
 
       const identified = await response.json();
-      console.log('[LOG_PAGE] AI analysis successful:', { foodName: identified.foodName });
+      console.log('[LOG_PAGE_CAMERA] ✅ AI analysis successful:', { 
+        foodName: identified.foodName,
+        calories: identified.calories,
+        portionSizeGrams: identified.portionSizeGrams,
+      });
       setResult(identified);
       setStep('confirm');
     } catch (e: any) {
-      console.error('[LOG_PAGE] Image analysis failed:', {
+      console.error('[LOG_PAGE_CAMERA] ❌ Image analysis failed:', {
         error: e.message,
         fileName: file.name,
         fileSize: file.size,
+        errorStack: e.stack?.substring(0, 300),
       });
       setError(e.message || 'Failed to analyze image. Please try another photo.');
       setStep('capture');
@@ -374,24 +404,51 @@ export default function LogPage() {
   const handleSave = async () => {
     if (!user || !result) return;
     setStep('saving');
+    console.log('[LOG_PAGE_SAVE] Starting save process:', {
+      hasUser: !!user,
+      hasResult: !!result,
+      hasImageFile: !!imageFile,
+      mode,
+      activeProfileId,
+    });
+    
     try {
       // Ensure user has profile (safety check)
+      console.log('[LOG_PAGE_SAVE] Ensuring profile exists for user:', user.uid);
       const profileId = await ensureUserProfile(user.uid);
+      console.log('[LOG_PAGE_SAVE] ✅ Profile check complete, profileId:', profileId);
       
       let imageUrl: string | null = null;
       if (imageFile) {
+        console.log('[LOG_PAGE_SAVE] Uploading image to Firebase Storage...');
         const today = format(new Date(), 'yyyy-MM-dd');
         const ext = imageFile.name.split('.').pop() || 'jpg';
         const storageRef = ref(storage, `users/${user.uid}/food-images/${today}/${Date.now()}.${ext}`);
         await uploadBytes(storageRef, imageFile);
         imageUrl = await getDownloadURL(storageRef);
+        console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully, URL length:', imageUrl.length);
+      } else {
+        console.log('[LOG_PAGE_SAVE] No image file, proceeding with text-only entry');
       }
+      
       const today = format(new Date(), 'yyyy-MM-dd');
-      await addDoc(collection(db, 'users', user.uid, 'days', today, 'entries'), {
-        ...result, imageUrl, createdAt: serverTimestamp(), profileId: profileId || activeProfileId || 'main',
+      const entryData = {
+        ...result, 
+        imageUrl, 
+        createdAt: serverTimestamp(), 
+        profileId: profileId || activeProfileId || 'main',
+      };
+      
+      console.log('[LOG_PAGE_SAVE] Saving food entry to Firestore:', {
+        entryData: { ...entryData, createdAt: '[timestamp]' },
+        path: `users/${user.uid}/days/${today}/entries`,
       });
       
+      await addDoc(collection(db, 'users', user.uid, 'days', today, 'entries'), entryData);
+      console.log('[LOG_PAGE_SAVE] ✅ Entry saved successfully');
+      
       // Fetch all entries for today to get daily totals
+      console.log('[LOG_PAGE_SAVE] Fetching all entries for today to calculate totals...');
       const { getDocs, query, where } = await import('firebase/firestore');
       const entriesRef = collection(db, 'users', user.uid, 'days', today, 'entries');
       const entriesSnapshot = await getDocs(entriesRef);
@@ -409,7 +466,16 @@ export default function LogPage() {
         totalFat += entry.fatGrams || 0;
       });
       
+      console.log('[LOG_PAGE_SAVE] Daily totals calculated:', {
+        totalCalories,
+        totalProtein,
+        totalCarbs,
+        totalFat,
+        entryCount: entriesSnapshot.size,
+      });
+      
       // Get nutrition feedback from AI
+      console.log('[LOG_PAGE_SAVE] Requesting nutrition feedback from AI...');
       const feedbackRes = await fetch('/api/analyze-nutrition', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -431,16 +497,29 @@ export default function LogPage() {
       });
       
       if (feedbackRes.ok) {
+        console.log('[LOG_PAGE_SAVE] ✅ Nutrition feedback received');
         const feedbackData = await feedbackRes.json();
         setFeedback(feedbackData);
         setShowFeedback(true);
         setStep('done');
+        console.log('[LOG_PAGE_SAVE] ✅ SAVE COMPLETE - Redirecting to dashboard');
         setTimeout(() => router.push('/dashboard'), 4000);
       } else {
+        console.log('[LOG_PAGE_SAVE] Nutrition feedback API not OK, status:', feedbackRes.status);
         setStep('done');
         setTimeout(() => router.push('/dashboard'), 1500);
       }
     } catch (e: any) {
+      console.error('[LOG_PAGE_SAVE] ❌ SAVE FAILED:', {
+        errorMessage: e.message,
+        errorCode: e.code,
+        errorStack: e.stack?.substring(0, 300),
+        errorName: e.name,
+        fullError: JSON.stringify(e, null, 2),
+        mode,
+        imageFilePresent: !!imageFile,
+        resultPresent: !!result,
+      });
       setError(e.message || 'Failed to save entry.');
       setStep('confirm');
     }
