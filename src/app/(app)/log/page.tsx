@@ -8,7 +8,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, Upload, Loader2, CheckCircle, RefreshCw, ArrowLeft, Utensils, Search, Zap, Type, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { db, storage } from '@/lib/firebase';
-import { format, parse } from 'date-fns';
+import { format, parse, subDays } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -249,11 +249,33 @@ export default function LogPage() {
 
   // Date picker state for logging past meals
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [dateError, setDateError] = useState<string | null>(null);
+
+  // Calculate min/max dates (30 days back from today)
+  const today = new Date();
+  const minDate = subDays(today, 30);
+  const minDateString = format(minDate, 'yyyy-MM-dd');
+  const maxDateString = format(today, 'yyyy-MM-dd');
 
   // Reset to today's date on component mount to ensure fresh state on page load
   useEffect(() => {
     setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+    setDateError(null);
   }, []);
+
+  // Handle date selection with 30-day validation
+  const handleDateChange = (value: string) => {
+    if (value < minDateString) {
+      setDateError('You can only log meals from the last 30 days.');
+      return;
+    }
+    if (value > maxDateString) {
+      setDateError('You cannot log meals in the future.');
+      return;
+    }
+    setSelectedDate(value);
+    setDateError(null);
+  };
 
   // Nutrition feedback state
   const [feedback, setFeedback] = useState<any>(null);
@@ -563,9 +585,12 @@ export default function LogPage() {
           id="log-date"
           type="date"
           value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
+          onChange={(e) => handleDateChange(e.target.value)}
+          min={minDateString}
+          max={maxDateString}
           className="max-w-xs"
         />
+        {dateError && <p className="text-sm text-red-500">{dateError}</p>}
       </div>
 
       {/* Mode toggle */}
