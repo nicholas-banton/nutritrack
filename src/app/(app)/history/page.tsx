@@ -385,11 +385,39 @@ export default function HistoryPage() {
       throw new Error('Not authenticated');
     }
     try {
+      console.log('[DELETE_ENTRY] Attempting to delete entry:', {
+        userId: user.uid,
+        dateId,
+        entryId,
+        path: `users/${user.uid}/days/${dateId}/entries/${entryId}`,
+      });
+
       const entryRef = doc(db, 'users', user.uid, 'days', dateId, 'entries', entryId);
+      
+      // Check if document exists before deletion
+      const entrySnap = await getDoc(entryRef);
+      if (!entrySnap.exists()) {
+        console.warn('[DELETE_ENTRY] Entry not found:', entryId);
+        throw new Error('Entry not found. It may have already been deleted.');
+      }
+
       await deleteDoc(entryRef);
+      console.log('[DELETE_ENTRY] ✅ Successfully deleted entry:', entryId);
     } catch (e: any) {
-      console.error('Failed to delete entry:', e);
-      throw new Error('Failed to delete entry. Please try again.');
+      console.error('[DELETE_ENTRY] ❌ Failed to delete entry:', {
+        error: e?.message || e,
+        code: e?.code,
+        entryId,
+      });
+      
+      // Provide more specific error messages
+      if (e?.code === 'permission-denied') {
+        throw new Error('You do not have permission to delete this entry.');
+      } else if (e?.message?.includes('not found')) {
+        throw new Error('Entry not found. It may have already been deleted.');
+      } else {
+        throw new Error(e?.message || 'Failed to delete entry. Please try again.');
+      }
     }
   };
   return (
