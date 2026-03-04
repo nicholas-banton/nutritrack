@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
-import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { useCollectionData } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
 import { Utensils, Image as ImageIcon, Loader2, TrendingDown, TrendingUp, Edit2, Trash2, X, Check } from 'lucide-react';
@@ -31,13 +31,13 @@ const EntryCard = ({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Ensure entry has an ID
-  const entryId = entry?.id || 'unknown';
+  const entryId = (entry?.id as string) || 'unknown';
 
-  if (!entry?.foodName) {
+  if (!entry?.foodName || !entryId || entryId === 'unknown') {
     return (
       <Card className="overflow-hidden">
         <CardContent className="p-4 text-red-600 text-sm">
-          Error: Invalid entry data
+          Error: Invalid entry data (missing ID)
         </CardContent>
       </Card>
     );
@@ -375,7 +375,38 @@ export default function HistoryPage() {
     );
   }, [user, dateId, activeProfileId]);
 
-  const [entries, loading, error] = useCollectionData(entriesQuery);
+  // Get raw Firestore data with document references
+  const [rawEntries, loading, error] = useCollectionData(entriesQuery);
+  
+  // Map entries to ensure they have proper IDs from Firestore
+  // Since useCollectionData doesn't automatically add document IDs reliably,
+  // we need to use a different approach
+  const [entries, setEntries] = useState<(FoodEntry & { id: string })[]>([]);
+  
+  useEffect(() => {
+    if (!user || !activeProfileId) return;
+    
+    // Use onSnapshot to get documents with IDs
+    const unsubscribe = onSnapshot(
+      query(
+        collection(db, 'users', user.uid, 'days', dateId, 'entries'),
+        where('profileId', '==', activeProfileId),
+        orderBy('createdAt', 'desc')
+      ),
+      (snapshot) => {
+        const mappedEntries = snapshot.docs.map((doc) => ({
+          ...doc.data() as FoodEntry,
+          id: doc.id, // Explicitly get the document ID
+        }));
+        setEntries(mappedEntries as (FoodEntry & { id: string })[]);
+      },
+      (error) => {
+        console.error('Error fetching entries:', error);
+      }
+    );
+    
+    return () => unsubscribe();
+  }, [user, dateId, activeProfileId]);
 
   const handleEditEntry = (entry: FoodEntry) => {
     setEditingEntry(entry);
