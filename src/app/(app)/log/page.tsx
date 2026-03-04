@@ -8,7 +8,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, Upload, Loader2, CheckCircle, RefreshCw, ArrowLeft, Utensils, Search, Zap, Type, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { db, storage } from '@/lib/firebase';
-import { format } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -249,6 +249,11 @@ export default function LogPage() {
 
   // Date picker state for logging past meals
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+
+  // Reset to today's date on component mount to ensure fresh state on page load
+  useEffect(() => {
+    setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+  }, []);
 
   // Nutrition feedback state
   const [feedback, setFeedback] = useState<any>(null);
@@ -552,7 +557,7 @@ export default function LogPage() {
       {/* Date picker */}
       <div className="flex flex-col gap-2">
         <Label htmlFor="log-date" className="text-sm font-medium text-gray-700">
-          Logging for: {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+          Logging for: {format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEEE, MMMM d, yyyy')}
         </Label>
         <Input
           id="log-date"
