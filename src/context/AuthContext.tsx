@@ -7,7 +7,9 @@ import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, updateProfile,
   AuthError,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { setDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { calculateMacroGoals } from '@/lib/types/user-profile';
 
 interface AuthContextType {
   user: User | null;
@@ -66,6 +68,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthError(null);
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
       if (displayName) await updateProfile(user, { displayName });
+      
+      // Create initial profile document for new users
+      try {
+        const defaultProfile = {
+          name: displayName || 'New User',
+          age: 25,
+          sex: 'other',
+          heightInches: 70,
+          currentWeightLbs: 150,
+          goalWeightLbs: 150,
+          profileId: 'main',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        
+        // Calculate default macro goals
+        const macroGoals = calculateMacroGoals(
+          defaultProfile.age,
+          defaultProfile.sex,
+          defaultProfile.heightInches,
+          defaultProfile.currentWeightLbs,
+          defaultProfile.goalWeightLbs
+        );
+        
+        const profileWithGoals = {
+          ...defaultProfile,
+          ...macroGoals,
+        };
+        
+        await setDoc(doc(db, 'users', user.uid, 'profile', 'settings'), profileWithGoals);
+        console.log('[AUTH] Profile created for new user:', user.uid);
+      } catch (profileError: any) {
+        // Log profile creation error but don't fail signup
+        console.error('[AUTH] Failed to create profile document:', profileError.message);
+      }
     } catch (err: any) {
       const errorMsg = getAuthErrorMessage(err);
       setAuthError(errorMsg);
@@ -78,7 +115,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setAuthError(null);
       // Try popup first
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      
+      // Create profile if doesn't exist (for new Google signup users)
+      try {
+        const defaultProfile = {
+          name: result.user.displayName || 'New User',
+          age: 25,
+          sex: 'other',
+          heightInches: 70,
+          currentWeightLbs: 150,
+          goalWeightLbs: 150,
+          profileId: 'main',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        
+        // Calculate default macro goals
+        const macroGoals = calculateMacroGoals(
+          defaultProfile.age,
+          defaultProfile.sex,
+          defaultProfile.heightInches,
+          defaultProfile.currentWeightLbs,
+          defaultProfile.goalWeightLbs
+        );
+        
+        const profileWithGoals = {
+          ...defaultProfile,
+          ...macroGoals,
+        };
+        
+        // Use merge: true so we don't overwrite existing profiles
+        await setDoc(doc(db, 'users', result.user.uid, 'profile', 'settings'), profileWithGoals, { merge: true });
+        console.log('[AUTH] Profile created/verified for Google user:', result.user.uid);
+      } catch (profileError: any) {
+        console.error('[AUTH] Failed to create profile for Google user:', profileError.message);
+      }
     } catch (err: any) {
       // If popup is blocked, fall back to redirect
       if (err.code === 'auth/popup-blocked') {

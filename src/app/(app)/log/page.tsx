@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, Upload, Loader2, CheckCircle, RefreshCw, ArrowLeft, Utensils, Search, Zap, Type, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { UserProfile } from '@/lib/types/user-profile';
+import { calculateMacroGoals } from '@/lib/types/user-profile';
 
 type Step = 'capture' | 'analyzing' | 'confirm' | 'saving' | 'done';
 type Mode = 'camera' | 'quick' | 'text';
@@ -150,6 +151,50 @@ async function analyzeFoodText(description: string): Promise<FoodResult> {
       error: error.message,
     });
     throw error;
+  }
+}
+
+// Ensure user has a profile document (safety check for users who signed up before profile auto-creation)
+async function ensureUserProfile(uid: string): Promise<string> {
+  try {
+    const profileDoc = await getDoc(doc(db, 'users', uid, 'profile', 'settings'));
+    if (profileDoc.exists()) {
+      return profileDoc.data().profileId || 'main';
+    }
+    
+    // Profile doesn't exist - create default one
+    console.warn('[LOG_PAGE] Profile missing for user, creating default profile');
+    const defaultProfile = {
+      name: 'User',
+      age: 25,
+      sex: 'other',
+      heightInches: 70,
+      currentWeightLbs: 150,
+      goalWeightLbs: 150,
+      profileId: 'main',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    
+    const macroGoals = calculateMacroGoals(
+      defaultProfile.age,
+      defaultProfile.sex,
+      defaultProfile.heightInches,
+      defaultProfile.currentWeightLbs,
+      defaultProfile.goalWeightLbs
+    );
+    
+    const profileWithGoals = {
+      ...defaultProfile,
+      ...macroGoals,
+    };
+    
+    await setDoc(doc(db, 'users', uid, 'profile', 'settings'), profileWithGoals);
+    console.log('[LOG_PAGE] Created missing profile for user:', uid);
+    return 'main';
+  } catch (error: any) {
+    console.error('[LOG_PAGE] Failed to ensure profile exists:', error.message);
+    return 'main'; // Return main as fallback
   }
 }
 
@@ -330,6 +375,9 @@ export default function LogPage() {
     if (!user || !result) return;
     setStep('saving');
     try {
+      // Ensure user has profile (safety check)
+      const profileId = await ensureUserProfile(user.uid);
+      
       let imageUrl: string | null = null;
       if (imageFile) {
         const today = format(new Date(), 'yyyy-MM-dd');
@@ -340,7 +388,7 @@ export default function LogPage() {
       }
       const today = format(new Date(), 'yyyy-MM-dd');
       await addDoc(collection(db, 'users', user.uid, 'days', today, 'entries'), {
-        ...result, imageUrl, createdAt: serverTimestamp(), profileId: activeProfileId || 'main',
+        ...result, imageUrl, createdAt: serverTimestamp(), profileId: profileId || activeProfileId || 'main',
       });
       
       // Fetch all entries for today to get daily totals
