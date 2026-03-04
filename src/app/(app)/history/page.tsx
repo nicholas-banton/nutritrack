@@ -2,44 +2,236 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
-import { collection, query, orderBy, doc, getDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useCollectionData } from 'react-firebase-hooks/firestore';
 import { format } from 'date-fns';
-import { Utensils, Image as ImageIcon, Loader2, TrendingDown, TrendingUp } from 'lucide-react';
+import { Utensils, Image as ImageIcon, Loader2, TrendingDown, TrendingUp, Edit2, Trash2, X, Check } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import type { FoodEntry } from '@/lib/types/food-entry';
 import type { UserProfile } from '@/lib/types/user-profile';
 import { Label } from '@/components/ui/label';
 
-const EntryCard = ({ entry }: { entry: FoodEntry }) => (
-  <Card className="overflow-hidden">
-    <div className="flex">
-      {entry.imageUrl ? (
-        <div className="relative w-24 h-24 flex-shrink-0">
-          <Image src={entry.imageUrl} alt={entry.foodName} fill className="object-cover" />
+const EntryCard = ({
+  entry,
+  onEdit,
+  onDelete,
+}: {
+  entry: FoodEntry;
+  onEdit: (entry: FoodEntry) => void;
+  onDelete: (entryId: string) => Promise<void>;
+}) => {
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this entry?')) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(entry.id);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex">
+        {entry.imageUrl ? (
+          <div className="relative w-24 h-24 flex-shrink-0">
+            <Image src={entry.imageUrl} alt={entry.foodName} fill className="object-cover" />
+          </div>
+        ) : (
+          <div className="w-24 h-24 flex-shrink-0 bg-gray-50 flex items-center justify-center">
+            <ImageIcon className="h-8 w-8 text-gray-300" />
+          </div>
+        )}
+        <div className="p-4 flex-grow">
+          <p className="font-semibold">{entry.foodName}</p>
+          <p className="text-sm text-gray-500">{Math.round(entry.calories)} kcal &bull; {entry.portionSizeGrams}g</p>
+          <div className="text-xs text-gray-400 mt-2 grid grid-cols-3 gap-x-2">
+            <span>P: {Math.round(entry.proteinGrams)}g</span>
+            <span>C: {Math.round(entry.carbsGrams)}g</span>
+            <span>F: {Math.round(entry.fatGrams)}g</span>
+          </div>
         </div>
-      ) : (
-        <div className="w-24 h-24 flex-shrink-0 bg-gray-50 flex items-center justify-center">
-          <ImageIcon className="h-8 w-8 text-gray-300" />
-        </div>
-      )}
-      <div className="p-4 flex-grow">
-        <p className="font-semibold">{entry.foodName}</p>
-        <p className="text-sm text-gray-500">{Math.round(entry.calories)} kcal &bull; {entry.portionSizeGrams}g</p>
-        <div className="text-xs text-gray-400 mt-2 grid grid-cols-3 gap-x-2">
-          <span>P: {Math.round(entry.proteinGrams)}g</span>
-          <span>C: {Math.round(entry.carbsGrams)}g</span>
-          <span>F: {Math.round(entry.fatGrams)}g</span>
+        <div className="p-4 flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => onEdit(entry)} className="h-8 w-8 p-0 hover:bg-blue-50">
+            <Edit2 className="h-4 w-4 text-blue-600" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="h-8 w-8 p-0 hover:bg-red-50"
+          >
+            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+          </Button>
         </div>
       </div>
+    </Card>
+  );
+};
+
+const EditEntryModal = ({
+  entry,
+  isOpen,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  entry: FoodEntry | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (updatedEntry: Partial<FoodEntry>) => Promise<void>;
+  isSaving: boolean;
+}) => {
+  const [foodName, setFoodName] = useState('');
+  const [calories, setCalories] = useState(0);
+  const [protein, setProtein] = useState(0);
+  const [carbs, setCarbs] = useState(0);
+  const [fat, setFat] = useState(0);
+  const [portionSize, setPortionSize] = useState(0);
+
+  useEffect(() => {
+    if (entry) {
+      setFoodName(entry.foodName);
+      setCalories(entry.calories);
+      setProtein(entry.proteinGrams);
+      setCarbs(entry.carbsGrams);
+      setFat(entry.fatGrams);
+      setPortionSize(entry.portionSizeGrams);
+    }
+  }, [entry]);
+
+  const handleSave = async () => {
+    if (!entry) return;
+    await onSave({
+      foodName,
+      calories,
+      proteinGrams: protein,
+      carbsGrams: carbs,
+      fatGrams: fat,
+      portionSizeGrams: portionSize,
+    });
+  };
+
+  if (!isOpen || !entry) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Edit Entry</CardTitle>
+          <Button size="sm" variant="ghost" onClick={onClose} className="h-8 w-8 p-0">
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="food-name" className="text-sm font-medium">
+              Food Name
+            </Label>
+            <Input
+              id="food-name"
+              value={foodName}
+              onChange={(e) => setFoodName(e.target.value)}
+              placeholder="Food name"
+              className="mt-1"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="calories" className="text-sm font-medium">
+                Calories
+              </Label>
+              <Input
+                id="calories"
+                type="number"
+                value={calories}
+                onChange={(e) => setCalories(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="portion" className="text-sm font-medium">
+                Portion (g)
+              </Label>
+              <Input
+                id="portion"
+                type="number"
+                value={portionSize}
+                onChange={(e) => setPortionSize(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="protein" className="text-sm font-medium">
+                Protein (g)
+              </Label>
+              <Input
+                id="protein"
+                type="number"
+                value={protein}
+                onChange={(e) => setProtein(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="carbs" className="text-sm font-medium">
+                Carbs (g)
+              </Label>
+              <Input
+                id="carbs"
+                type="number"
+                value={carbs}
+                onChange={(e) => setCarbs(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="fat" className="text-sm font-medium">
+                Fat (g)
+              </Label>
+              <Input
+                id="fat"
+                type="number"
+                value={fat}
+                onChange={(e) => setFat(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-4">
+            <Button variant="outline" onClick={onClose} className="flex-1" disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex-1 bg-teal-600 hover:bg-teal-700"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+              {isSaving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
-  </Card>
-);
+  );
+};
 
 const DailySummary = ({ entries, profile, isLoading }: { entries?: FoodEntry[]; profile: UserProfile | null; isLoading: boolean }) => {
   const totals = useMemo(() => {
@@ -120,6 +312,11 @@ export default function HistoryPage() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
+  // Edit modal state
+  const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
   // Load active profile ID and user profile
   useEffect(() => {
     if (!user) {
@@ -154,6 +351,38 @@ export default function HistoryPage() {
   }, [user, dateId, activeProfileId]);
 
   const [entries, loading, error] = useCollectionData(entriesQuery);
+
+  const handleEditEntry = (entry: FoodEntry) => {
+    setEditingEntry(entry);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditedEntry = async (updatedData: Partial<FoodEntry>) => {
+    if (!user || !editingEntry) return;
+    try {
+      setIsSavingEdit(true);
+      const entryRef = doc(db, 'users', user.uid, 'days', dateId, 'entries', editingEntry.id);
+      await updateDoc(entryRef, updatedData as any);
+      setIsEditModalOpen(false);
+      setEditingEntry(null);
+    } catch (e: any) {
+      console.error('Failed to update entry:', e);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    if (!user) return;
+    try {
+      const entryRef = doc(db, 'users', user.uid, 'days', dateId, 'entries', entryId);
+      await deleteDoc(entryRef);
+    } catch (e: any) {
+      console.error('Failed to delete entry:', e);
+      alert('Failed to delete entry. Please try again.');
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 pb-8">
@@ -194,12 +423,31 @@ export default function HistoryPage() {
           )}
           {!loading && entries && entries.length > 0 && (
             <div className="space-y-4">
-              {entries.map(e => <EntryCard key={e.id} entry={e as FoodEntry} />)}
+              {entries.map(e => (
+                <EntryCard
+                  key={e.id}
+                  entry={e as FoodEntry}
+                  onEdit={handleEditEntry}
+                  onDelete={handleDeleteEntry}
+                />
+              ))}
             </div>
           )}
           {error && <p className="text-red-500 text-sm">{error.message}</p>}
         </CardContent>
       </Card>
+      
+      {/* Edit entry modal */}
+      <EditEntryModal
+        entry={editingEntry}
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingEntry(null);
+        }}
+        onSave={handleSaveEditedEntry}
+        isSaving={isSavingEdit}
+      />
     </div>
   );
 }
