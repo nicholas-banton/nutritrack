@@ -28,9 +28,20 @@ Estimate the total nutrition for everything described and return:
 Be accurate and account for all items mentioned. Return only JSON.`,
     });
 
-    if (!output) return NextResponse.json({ error: 'No response from AI' }, { status: 500 });
+    if (!output) {
+      console.error('[ANALYZE_FOOD] AI returned no output for description:', description);
+      return NextResponse.json({ error: 'AI could not analyze the food description. Please try again.' }, { status: 500 });
+    }
     return NextResponse.json(output);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[ANALYZE_FOOD] Error analyzing food:', {
+      description: req.body,
+      error: e.message,
+      stack: e.stack,
+      name: e.name,
+    });
+    const errorMessage = e.message || 'Failed to analyze food. Please try again.';
+    const status = e.status || 500;
+    return NextResponse.json({ error: errorMessage }, { status });
   }
 }

@@ -72,7 +72,20 @@ async function analyzeFoodText(description: string): Promise<FoodResult> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description }),
   });
-  if (!response.ok) throw new Error('Failed to analyze food description');
+  
+  if (!response.ok) {
+    let errorMessage = 'Failed to analyze food description';
+    try {
+      const errorData = await response.json();
+      if (errorData.error) {
+        errorMessage = errorData.error;
+      }
+    } catch {
+      // If response body is not JSON, use default error message
+    }
+    throw new Error(errorMessage);
+  }
+  
   return response.json();
 }
 
