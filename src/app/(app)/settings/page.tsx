@@ -90,11 +90,14 @@ export default function SettingsPage() {
         // Load the main settings doc to get activeProfileId
         const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
         let mainProfile = null;
-        let activeId = null;
+        let activeId = 'main'; // CRITICAL FIX: Default to 'main' instead of null
 
         if (settingsDoc.exists()) {
           mainProfile = settingsDoc.data() as UserProfile;
           activeId = mainProfile.profileId || 'main';
+          console.log('[SETTINGS] Main profile loaded:', { activeId, hasName: !!mainProfile.name });
+        } else {
+          console.log('[SETTINGS] No main profile exists yet - new user');
         }
 
         // Load all profiles from the user's profile subcollection
@@ -116,7 +119,10 @@ export default function SettingsPage() {
         }
 
         setProfiles(loadedProfiles);
-        setActiveProfileId(activeId || (loadedProfiles[0]?.profileId || 'main'));
+        // CRITICAL FIX: Always set activeProfileId - default to 'main' if nothing else is available
+        const finalActiveId = activeId || 'main';
+        setActiveProfileId(finalActiveId);
+        console.log('[SETTINGS] Active profile set to:', finalActiveId);
 
         // Load the active profile data into the form
         const activeProfile = loadedProfiles.find(p => p.profileId === (activeId || (loadedProfiles[0]?.profileId || 'main'))) || mainProfile;
@@ -150,7 +156,8 @@ export default function SettingsPage() {
           setBloodPanelData(activeProfile.bloodPanel || null);
         }
       } catch (e: any) {
-        setError('Failed to load profile');
+        console.error('[SETTINGS] Error loading profile:', e);
+        setError('Failed to load profile: ' + (e.message || 'Unknown error'));
       } finally {
         setLoading(false);
       }
@@ -195,7 +202,17 @@ export default function SettingsPage() {
   }, [heightInches, heightFeet, heightCm, currentWeightDisplay, goalWeightDisplay, age, sex, heightUnit, weightUnit, goalWeightDate]);
 
   const handleSaveProfile = async () => {
-    if (!user || !activeProfileId) return;
+    // CRITICAL FIX: Validate activeProfileId is set
+    if (!user) {
+      setError('User not authenticated');
+      return;
+    }
+
+    if (!activeProfileId) {
+      setError('Profile ID not initialized. Please refresh the page and try again.');
+      console.error('[SETTINGS] Critical error: activeProfileId is null/undefined when save was attempted');
+      return;
+    }
 
     // Prepare height in inches
     let finalHeightInches = 0;
@@ -228,6 +245,8 @@ export default function SettingsPage() {
     setSaving(true);
     setError(null);
     setSuccess(false);
+    
+    console.log('[SETTINGS] Starting save with activeProfileId:', activeProfileId);
 
     try {
       const profile: UserProfile = {
@@ -252,16 +271,24 @@ export default function SettingsPage() {
       };
 
       // Save to the correct location based on active profile
+      const savePath = activeProfileId === 'main' 
+        ? `users/${user.uid}/profile/settings`
+        : `users/${user.uid}/profiles/${activeProfileId}`;
+      
+      console.log('[SETTINGS] Saving to path:', savePath);
+      
       if (activeProfileId === 'main') {
         await setDoc(doc(db, 'users', user.uid, 'profile', 'settings'), profile);
       } else {
         await setDoc(doc(db, 'users', user.uid, 'profiles', activeProfileId), profile);
       }
       
+      console.log('[SETTINGS] Profile saved successfully');
       setSuccess(true);
       setTimeout(() => router.push('/dashboard'), 1500);
     } catch (e: any) {
-      setError(e.message || 'Failed to save profile');
+      console.error('[SETTINGS] Error saving profile:', e);
+      setError('Failed to save profile: ' + (e.message || 'Unknown error'));
     } finally {
       setSaving(false);
     }
@@ -914,12 +941,18 @@ export default function SettingsPage() {
         size="lg"
         className="w-full h-12 gap-2 bg-teal-600 hover:bg-teal-700 text-white"
         onClick={handleSaveProfile}
-        disabled={saving}
+        disabled={saving || loading || !activeProfileId}
+        title={!activeProfileId ? 'Profile is loading...' : ''}
       >
         {saving ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
             Saving...
+          </>
+        ) : loading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
           </>
         ) : (
           <>
