@@ -72,15 +72,19 @@ Be specific with the food name. Return ONLY valid JSON, no other text.`,
       const errorMessage = aiError.message || aiError.toString();
       const errorCode = aiError.code || 'UNKNOWN';
       
-      console.error('[IDENTIFY_FOOD_API] Genkit/AI Error Details:', {
+      // Log EVERYTHING about this error for debugging
+      console.error('[IDENTIFY_FOOD_API] ❌ DETAILED AI ERROR:', {
         message: errorMessage,
         code: errorCode,
         imageSizeInMB: (photoDataUri.length / 1024 / 1024).toFixed(2),
-        fullError: JSON.stringify(aiError, null, 2).substring(0, 500),
+        fullError: JSON.stringify(aiError, null, 2),
+        errorKeys: Object.keys(aiError),
+        errorToString: aiError.toString(),
       });
 
       // Check for specific error types
       if (errorMessage.includes('API key') || errorMessage.includes('authentication') || errorMessage.includes('401') || errorMessage.includes('UNAUTHENTICATED')) {
+        console.error('[IDENTIFY_FOOD_API] Authentication error detected');
         return NextResponse.json(
           { error: 'AI service authentication failed. Please check the API key configuration.' },
           { status: 503 }

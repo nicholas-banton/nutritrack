@@ -52,15 +52,19 @@ Be accurate and account for all items mentioned. Return valid JSON only.`,
       const errorCode = aiError.code || 'UNKNOWN';
       const errorStatus = aiError.status || 'NO_STATUS';
       
-      console.error('[ANALYZE_FOOD] Genkit/AI Error Details:', {
+      // Log EVERYTHING about this error for debugging
+      console.error('[ANALYZE_FOOD] ❌ DETAILED AI ERROR:', {
         message: errorMessage,
         code: errorCode,
         status: errorStatus,
-        fullError: JSON.stringify(aiError, null, 2).substring(0, 500),
+        fullError: JSON.stringify(aiError, null, 2),
+        errorKeys: Object.keys(aiError),
+        errorToString: aiError.toString(),
       });
       
       // More precise error detection
       if (errorMessage.includes('API key') || errorMessage.includes('authentication') || errorMessage.includes('401') || errorMessage.includes('UNAUTHENTICATED')) {
+        console.error('[ANALYZE_FOOD] Authentication error detected');
         return NextResponse.json(
           { error: 'AI service authentication failed. Please check the API key configuration.' },
           { status: 503 }
