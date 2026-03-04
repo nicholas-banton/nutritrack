@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     let result;
     try {
       const response = await ai.generate({
-        model: 'googleai/gemini-pro',
+        model: 'gemini-1.5-pro',
         output: { schema: FoodResultSchema },
         prompt: `You are a professional nutritionist. The user described what they ate: "${description}". 
 Estimate the total nutrition for everything described and return a JSON object with:

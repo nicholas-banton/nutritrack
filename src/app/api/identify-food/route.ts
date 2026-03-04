@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     try {
       console.log('[IDENTIFY_FOOD_API] Calling Genkit AI...');
       const response = await ai.generate({
-        model: 'googleai/gemini-pro',
+        model: 'gemini-1.5-pro',
         output: { schema: FoodResultSchema },
         prompt: [
           { media: { url: photoDataUri } },
