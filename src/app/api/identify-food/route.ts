@@ -69,27 +69,30 @@ Be specific with the food name. Return ONLY valid JSON, no other text.`,
       result = response.output;
       console.log('[IDENTIFY_FOOD_API] AI Response received:', { foodName: result?.foodName });
     } catch (aiError: any) {
-      console.error('[IDENTIFY_FOOD_API] Genkit/AI Error:', {
-        message: aiError.message,
-        code: aiError.code,
-        status: aiError.status,
-        details: aiError.toString(),
+      const errorMessage = aiError.message || aiError.toString();
+      const errorCode = aiError.code || 'UNKNOWN';
+      
+      console.error('[IDENTIFY_FOOD_API] Genkit/AI Error Details:', {
+        message: errorMessage,
+        code: errorCode,
+        imageSizeInMB: (photoDataUri.length / 1024 / 1024).toFixed(2),
+        fullError: JSON.stringify(aiError, null, 2).substring(0, 500),
       });
 
       // Check for specific error types
-      if (aiError.message?.includes('API') || aiError.message?.includes('401') || aiError.message?.includes('authentication')) {
+      if (errorMessage.includes('API key') || errorMessage.includes('authentication') || errorMessage.includes('401') || errorMessage.includes('UNAUTHENTICATED')) {
         return NextResponse.json(
-          { error: 'AI service authentication failed. Please check the API key and try again later.' },
+          { error: 'AI service authentication failed. Please check the API key configuration.' },
           { status: 503 }
         );
       }
-      if (aiError.message?.includes('rate limit') || aiError.code === 429) {
+      if (errorMessage.includes('rate limit') || errorCode === 429) {
         return NextResponse.json(
           { error: 'Too many requests to AI service. Please wait a moment and try again.' },
           { status: 429 }
         );
       }
-      if (aiError.message?.includes('unsupported') || aiError.message?.includes('format')) {
+      if (errorMessage.includes('unsupported') || errorMessage.includes('format')) {
         return NextResponse.json(
           { error: 'Image format not supported or image is not a valid photo. Please try a different image.' },
           { status: 400 }

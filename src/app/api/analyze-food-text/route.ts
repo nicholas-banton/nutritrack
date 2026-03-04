@@ -46,27 +46,46 @@ Estimate the total nutrition for everything described and return a JSON object w
 Be accurate and account for all items mentioned. Return valid JSON only.`,
       });
       result = response.output;
+      console.log('[ANALYZE_FOOD] AI response received successfully:', { foodName: result?.foodName });
     } catch (aiError: any) {
-      console.error('[ANALYZE_FOOD] Genkit/AI Error:', {
-        message: aiError.message,
-        code: aiError.code,
-        status: aiError.status,
-        details: aiError.details || aiError.toString(),
+      const errorMessage = aiError.message || aiError.toString();
+      const errorCode = aiError.code || 'UNKNOWN';
+      const errorStatus = aiError.status || 'NO_STATUS';
+      
+      console.error('[ANALYZE_FOOD] Genkit/AI Error Details:', {
+        message: errorMessage,
+        code: errorCode,
+        status: errorStatus,
+        fullError: JSON.stringify(aiError, null, 2).substring(0, 500),
       });
       
-      // Provide specific error messages based on the type of error
-      if (aiError.message?.includes('API') || aiError.message?.includes('401')) {
+      // More precise error detection
+      if (errorMessage.includes('API key') || errorMessage.includes('authentication') || errorMessage.includes('401') || errorMessage.includes('UNAUTHENTICATED')) {
         return NextResponse.json(
-          { error: 'AI service authentication failed. Please try again later.' },
+          { error: 'AI service authentication failed. Please check the API key configuration.' },
           { status: 503 }
         );
       }
-      if (aiError.message?.includes('rate limit') || aiError.code === 429) {
+      if (errorMessage.includes('rate limit') || errorCode === 429 || errorStatus === 429) {
         return NextResponse.json(
-          { error: 'Too many requests. Please wait a moment and try again.' },
+          { error: 'Too many requests to AI service. Please wait a moment and try again.' },
           { status: 429 }
         );
       }
+      if (errorMessage.includes('Quota') || errorMessage.includes('quota')) {
+        return NextResponse.json(
+          { error: 'AI service quota exceeded. Please try again later.' },
+          { status: 503 }
+        );
+      }
+      if (errorMessage.includes('model') || errorMessage.includes('not found')) {
+        return NextResponse.json(
+          { error: 'AI model not available. Please try again later.' },
+          { status: 503 }
+        );
+      }
+      
+      // If it's not a known error, throw it for the outer catch block
       throw aiError;
     }
 
