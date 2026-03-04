@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ai } from '@/ai/genkit';
+import { ai, geminiModel } from '@/ai/genkit';
 import { z } from 'genkit';
 
 const FoodResultSchema = z.object({
@@ -32,9 +32,9 @@ export async function POST(req: NextRequest) {
 
     let result;
     try {
-      console.log('[ANALYZE_FOOD] About to call AI with model: gemini-1.5-pro');
+      console.log('[ANALYZE_FOOD] About to call AI with model: gemini-2.5-flash');
       const response = await ai.generate({
-        model: 'gemini-1.5-pro',
+        model: geminiModel,
         output: { schema: FoodResultSchema },
         prompt: `You are a professional nutritionist. The user described what they ate: "${description}". 
 Estimate the total nutrition for everything described and return a JSON object with:

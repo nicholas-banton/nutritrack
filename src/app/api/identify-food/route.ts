@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ai } from '@/ai/genkit';
+import { ai, geminiModel } from '@/ai/genkit';
 import { z } from 'genkit';
 
 const FoodResultSchema = z.object({
@@ -47,9 +47,9 @@ export async function POST(req: NextRequest) {
 
     let result;
     try {
-      console.log('[IDENTIFY_FOOD_API] Calling Genkit AI...');
+      console.log('[IDENTIFY_FOOD_API] Calling Genkit AI with gemini-2.5-flash...');
       const response = await ai.generate({
-        model: 'gemini-1.5-pro',
+        model: geminiModel,
         output: { schema: FoodResultSchema },
         prompt: [
           { media: { url: photoDataUri } },
