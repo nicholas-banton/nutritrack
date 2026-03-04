@@ -40,25 +40,55 @@ const ACCEPTED_TYPES = [
 ].join(',');
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_DATA_URI_SIZE = 10 * 1024 * 1024; // 10 MB for data URI
 
 async function toCompatibleDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = document.createElement('img');
     const url = URL.createObjectURL(file);
+    
+    // Add timeout to prevent hanging
+    const timeout = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      img.src = '';
+      reject(new Error('Image processing timed out. Please try a different image.'));
+    }, 10000);
+    
     img.onload = () => {
+      clearTimeout(timeout);
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return reject(new Error('Canvas not supported'));
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        return reject(new Error('Canvas not supported'));
+      }
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.85));
+      const dataUri = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // Check data URI size
+      if (dataUri.length > MAX_DATA_URI_SIZE) {
+        reject(new Error('Image is too large to process. Please use a smaller image.'));
+        return;
+      }
+      
+      resolve(dataUri);
     };
+    
     img.onerror = () => {
+      clearTimeout(timeout);
       URL.revokeObjectURL(url);
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
+      reader.onload = () => {
+        const dataUri = reader.result as string;
+        if (dataUri.length > MAX_DATA_URI_SIZE) {
+          reject(new Error('Image is too large to process. Please use a smaller image.'));
+        } else {
+          resolve(dataUri);
+        }
+      };
       reader.onerror = () => reject(new Error('Failed to read image'));
       reader.readAsDataURL(file);
     };
@@ -185,11 +215,21 @@ export default function LogPage() {
     setStep('analyzing');
     try {
       const dataUri = await toCompatibleDataUri(file);
+      
+      if (!dataUri) {
+        throw new Error('Failed to process image. Please try a different photo.');
+      }
+
       const identified = await identifyFood({ photoDataUri: dataUri });
       setResult(identified);
       setStep('confirm');
     } catch (e: any) {
-      setError(e.message || 'Failed to analyze image.');
+      console.error('[LOG_PAGE] Image analysis failed:', {
+        error: e.message,
+        fileName: file.name,
+        fileSize: file.size,
+      });
+      setError(e.message || 'Failed to analyze image. Please try another photo.');
       setStep('capture');
     }
   }, []);
