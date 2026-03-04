@@ -29,12 +29,30 @@ const EntryCard = ({
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Ensure entry has an ID
+  const entryId = entry?.id || 'unknown';
+
+  if (!entry?.foodName) {
+    return (
+      <Card className="overflow-hidden">
+        <CardContent className="p-4 text-red-600 text-sm">
+          Error: Invalid entry data
+        </CardContent>
+      </Card>
+    );
+  }
+
   const handleDelete = async () => {
+    if (!entryId || entryId === 'unknown') {
+      setDeleteError('Cannot delete entry: Missing entry ID');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this entry?')) return;
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await onDelete(entry.id);
+      await onDelete(entryId);
     } catch (e: any) {
       const errorMsg = e?.message || 'Failed to delete entry. Please try again.';
       setDeleteError(errorMsg);
@@ -459,14 +477,18 @@ export default function HistoryPage() {
           )}
           {!loading && entries && entries.length > 0 && (
             <div className="space-y-4">
-              {entries.map(e => (
-                <EntryCard
-                  key={e.id}
-                  entry={e as FoodEntry}
-                  onEdit={handleEditEntry}
-                  onDelete={handleDeleteEntry}
-                />
-              ))}
+              {entries.map((e, idx) => {
+                const entryId = (e as any)?.id || (e as FoodEntry & { id?: string })?.id;
+                const safeKey = entryId || `entry-${idx}`;
+                return (
+                  <EntryCard
+                    key={safeKey}
+                    entry={e as FoodEntry}
+                    onEdit={handleEditEntry}
+                    onDelete={handleDeleteEntry}
+                  />
+                );
+              })}
             </div>
           )}
           {error && <p className="text-red-500 text-sm">{error.message}</p>}
