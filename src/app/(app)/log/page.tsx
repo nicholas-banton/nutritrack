@@ -97,26 +97,61 @@ async function toCompatibleDataUri(file: File): Promise<string> {
 }
 
 async function analyzeFoodText(description: string): Promise<FoodResult> {
-  const response = await fetch('/api/analyze-food-text', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description }),
-  });
-  
-  if (!response.ok) {
-    let errorMessage = 'Failed to analyze food description';
-    try {
-      const errorData = await response.json();
-      if (errorData.error) {
-        errorMessage = errorData.error;
-      }
-    } catch {
-      // If response body is not JSON, use default error message
-    }
-    throw new Error(errorMessage);
+  if (!description || description.trim().length === 0) {
+    throw new Error('Please enter a food description');
   }
-  
-  return response.json();
+
+  try {
+    const response = await fetch('/api/analyze-food-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+    });
+    
+    if (!response.ok) {
+      let errorMessage = 'Failed to analyze food description';
+      const contentType = response.headers.get('content-type');
+      
+      try {
+        if (contentType?.includes('application/json')) {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } else {
+          const text = await response.text();
+          if (text) {
+            errorMessage = text;
+          }
+        }
+      } catch (parseError) {
+        console.warn('[ANALYZE_FOOD_CLIENT] Failed to parse error response:', parseError);
+      }
+      
+      throw new Error(errorMessage);
+    }
+    
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      throw new Error('Invalid response format from server');
+    }
+
+    const result = await response.json();
+    
+    // Validate the response has required fields
+    if (!result.foodName || result.calories === undefined || result.proteinGrams === undefined || 
+        result.carbsGrams === undefined || result.fatGrams === undefined || result.portionSizeGrams === undefined) {
+      throw new Error('AI response was incomplete. Please try a different description.');
+    }
+
+    return result as FoodResult;
+  } catch (error: any) {
+    console.error('[ANALYZE_FOOD_CLIENT] Error analyzing text:', {
+      description: description.substring(0, 100),
+      error: error.message,
+    });
+    throw error;
+  }
 }
 
 function useDebounce<T>(value: T, delay: number): T {
