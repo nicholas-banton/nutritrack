@@ -567,6 +567,9 @@ export default function LogPage() {
         userMessage += ' Your device may have restricted file access. Try taking a photo directly instead.';
       }
       
+      // Add fallback suggestion to use text input
+      userMessage += '\n\n💡 Alternative: Describe your food in the text field below instead.';
+      
       setError(userMessage);
       setStep('capture');
     }
@@ -680,14 +683,10 @@ export default function LogPage() {
       const profileId = await ensureUserProfile(user.uid);
       console.log('[LOG_PAGE_SAVE] ✅ Profile check complete, profileId:', profileId);
       
-      // Upload image to Firebase Storage (optional, non-blocking)
-      // Note: Skipping image upload due to CORS restrictions on Firebase Storage
-      // The entry will be saved without an image URL, which is acceptable
+      // Upload image to Firebase Storage (with robust error handling)
+      // CORS is now configured on the Firebase Storage bucket to allow uploads
+      // from nutritrack-ai-one.vercel.app and localhost
       let imageUrl: string | null = null;
-      
-      // TODO: Re-enable image upload once Firebase Storage CORS is properly configured
-      // For now, entries are saved to Firestore without image attachments
-      /*
       if (processedImageDataUri) {
         try {
           console.log('[LOG_PAGE_SAVE] Converting processed image to blob for upload...');
@@ -698,18 +697,33 @@ export default function LogPage() {
           const fileName = `${user.uid}/${selectedDate}/${timestamp}-food-image.jpg`;
           const storageRef = ref(storage, `food-images/${fileName}`);
           
-          const uploadResult = await uploadBytes(storageRef, blob);
-          imageUrl = await getDownloadURL(uploadResult.ref);
-          console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
-        } catch (uploadError: any) {
-          console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed, continuing without image:', uploadError.message);
+          try {
+            const uploadResult = await uploadBytes(storageRef, blob);
+            imageUrl = await getDownloadURL(uploadResult.ref);
+            console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
+          } catch (uploadErr: any) {
+            // If upload fails, log detailed error but continue saving the entry
+            console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed:', {
+              errorCode: uploadErr.code,
+              errorMessage: uploadErr.message,
+              isCORSError: uploadErr.message?.includes('CORS') || uploadErr.message?.includes('cors'),
+            });
+            
+            // Specific guidance for CORS errors
+            if (uploadErr.message?.includes('CORS') || uploadErr.message?.includes('cors')) {
+              console.warn('[LOG_PAGE_SAVE] CORS configuration may not be applied. Run: ./setup-cors.sh');
+            }
+            
+            // Continue without image - don't block the food entry save
+            console.log('[LOG_PAGE_SAVE] Continuing without image attachment...');
+          }
+        } catch (conversionErr: any) {
+          console.warn('[LOG_PAGE_SAVE] ⚠️ Image conversion failed:', conversionErr.message);
+          // Continue without image - don't block the food entry save
         }
       } else {
         console.log('[LOG_PAGE_SAVE] No processed image to upload');
       }
-      */
-      
-      console.log('[LOG_PAGE_SAVE] Image upload skipped (Firebase Storage CORS not configured), saving entry without image');
       
       // Use selectedDate instead of today to support logging past meals
       const entryData = {
@@ -934,7 +948,17 @@ export default function LogPage() {
                 </>
             }
           </div>
-          {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm text-red-700 whitespace-pre-line">{error}</p>
+              <button
+                onClick={() => { setMode('text'); setError(null); setTextInput(''); }}
+                className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+              >
+                <Type className="h-4 w-4" /> Try Describing Instead
+              </button>
+            </div>
+          )}
           <Button size="lg" className="h-14 text-base gap-2 bg-teal-600 hover:bg-teal-700" onClick={() => cameraInputRef.current?.click()}>
             <Camera className="h-5 w-5" /> Open Camera
           </Button>
@@ -1037,7 +1061,7 @@ export default function LogPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <Type className="h-5 w-5" /> Describe Your Meal
               </CardTitle>
-              <CardDescription>Type what you ate and AI will estimate the nutrition</CardDescription>
+              <CardDescription>Type what you ate and AI will estimate the nutrition (no image needed!)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <textarea

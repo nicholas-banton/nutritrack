@@ -1,8 +1,23 @@
 [
   {
-    "origin": ["https://nutritrack-ai-one.vercel.app", "http://localhost:3000"],
-    "method": ["GET", "HEAD", "DELETE", "POST", "PUT", "OPTIONS"],
-    "responseHeader": ["Content-Type", "x-goog-acl"],
+    "origin": [
+      "https://nutritrack-ai-one.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://localhost:3000"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "DELETE",
+      "POST",
+      "PUT",
+      "OPTIONS",
+      "PATCH"
+    ],
+    "responseHeader": [
+      "*"
+    ],
     "maxAgeSeconds": 3600
   }
 ]
