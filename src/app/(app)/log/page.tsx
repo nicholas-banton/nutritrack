@@ -633,7 +633,7 @@ export default function LogPage() {
       }
       
       // Add fallback suggestion to use text input
-      userMessage += '\n\n💡 Alternative: Describe your food in the text field below instead.';
+      userMessage += '\n\n💡 Alternative: Describe your food in the text field above instead.';
       
       setError(userMessage);
       setStep('capture');
