@@ -388,14 +388,14 @@ export default function ReportPage() {
       <div className="max-w-6xl mx-auto">
         {/* Profile Selector */}
         {!profilesLoading && availableProfiles.length > 1 && (
-          <div className="mb-6 p-4 border border-border rounded-lg bg-card">
-            <label className="text-sm font-medium text-foreground mb-2 block">
+          <div className="mb-8 p-6 border border-border rounded-lg bg-card">
+            <label className="text-sm font-semibold text-foreground mb-3 block">
               View Report For:
             </label>
             <select
               value={selectedProfileId || ''}
               onChange={(e) => setSelectedProfileId(e.target.value)}
-              className="w-full max-w-xs px-3 py-2 border border-input rounded-md bg-background text-foreground"
+              className="w-full max-w-sm px-4 py-2.5 border border-input rounded-lg bg-background text-foreground text-base font-medium cursor-pointer hover:border-blue-500 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950"
             >
               {availableProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
