@@ -448,10 +448,25 @@ export default function LogPage() {
       const profileId = await ensureUserProfile(user.uid);
       console.log('[LOG_PAGE_SAVE] ✅ Profile check complete, profileId:', profileId);
       
-      // Skip image upload - we don't need the actual photo since AI already analyzed it
-      // The nutrition data is what matters, not the image
+      // Upload image to Firebase Storage
       let imageUrl: string | null = null;
-      console.log('[LOG_PAGE_SAVE] Skipping image upload (not required for food entry)');
+      if (imageFile) {
+        try {
+          console.log('[LOG_PAGE_SAVE] Uploading image to Firebase Storage...');
+          const timestamp = Date.now();
+          const fileName = `${user.uid}/${selectedDate}/${timestamp}-${imageFile.name}`;
+          const storageRef = ref(storage, `food-images/${fileName}`);
+          
+          const uploadResult = await uploadBytes(storageRef, imageFile);
+          imageUrl = await getDownloadURL(uploadResult.ref);
+          console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
+        } catch (uploadError: any) {
+          console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed, continuing without image:', uploadError.message);
+          // Continue without image - don't block the food entry save
+        }
+      } else {
+        console.log('[LOG_PAGE_SAVE] No image to upload');
+      }
       
       // Use selectedDate instead of today to support logging past meals
       const entryData = {
