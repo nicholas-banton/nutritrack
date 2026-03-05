@@ -496,6 +496,14 @@ export default function LogPage() {
   };
 
   const handleSave = async () => {
+    // UNIFIED SAVE FLOW FOR ALL INPUT METHODS (Camera, Search, Text)
+    // This function is called by all three food logging methods:
+    // 1. Camera/Image Upload: handleImage() → AI identification → handleSave()
+    // 2. USDA Quick Search: handleQuickSelect() → user selection → handleSave()
+    // 3. Text Input: analyzeTextInput() → AI analysis → handleSave()
+    //
+    // All three methods set 'result' and 'step = confirm', then call handleSave() when "Save Entry" clicked
+    
     if (!user || !result) return;
     setStep('saving');
     console.log('[LOG_PAGE_SAVE] Starting save process:', {
