@@ -54,42 +54,93 @@ async function toCompatibleDataUri(file: File): Promise<string> {
   const timeoutMs = isMobile ? 20000 : 10000; 
   
   return new Promise((resolve, reject) => {
-    // Strategy 1: Try direct FileReader approach first on mobile (more reliable)
+    // Strategy 1: For mobile, use canvas with aggressive compression (more reliable)
     if (isMobile) {
-      console.log('[LOG_PAGE_IMAGE] Mobile device detected, using FileReader directly');
-      const reader = new FileReader();
+      console.log('[LOG_PAGE_IMAGE] Mobile device detected, using canvas with compression');
+      const img = document.createElement('img');
+      const url = URL.createObjectURL(file);
       
       const timeout = setTimeout(() => {
-        reject(new Error('Image reading timed out. Please try a smaller image or try again.'));
+        URL.revokeObjectURL(url);
+        img.src = '';
+        reject(new Error('Image processing timed out. Please try a smaller image or try again.'));
       }, timeoutMs);
       
-      reader.onload = () => {
+      img.onload = () => {
         clearTimeout(timeout);
-        const dataUri = reader.result as string;
-        if (dataUri.length > MAX_DATA_URI_SIZE) {
-          reject(new Error('Image is too large to process (converted size: ' + (dataUri.length / 1024 / 1024).toFixed(1) + 'MB). Please use a smaller image.'));
-        } else {
-          console.log('[LOG_PAGE_IMAGE] ✅ Direct FileReader successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
+        try {
+          const canvas = document.createElement('canvas');
+          // Scale down image for mobile if it's too large
+          let width = img.naturalWidth;
+          let height = img.naturalHeight;
+          
+          // Reduce dimensions if image is very large (mobile optimization)
+          const maxDimension = 1920;
+          if (width > maxDimension || height > maxDimension) {
+            const scale = Math.min(maxDimension / width, maxDimension / height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+            console.log('[LOG_PAGE_IMAGE] Scaled image dimensions:', width + 'x' + height);
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            URL.revokeObjectURL(url);
+            return reject(new Error('Canvas not supported on this device'));
+          }
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          URL.revokeObjectURL(url);
+          
+          // Try with high compression first (0.6 quality)
+          let dataUri = canvas.toDataURL('image/jpeg', 0.6);
+          
+          // If still too large, try lower quality (0.4)
+          if (dataUri.length > MAX_DATA_URI_SIZE * 0.8) { // 80% of limit
+            console.warn('[LOG_PAGE_IMAGE] Image too large at 0.6 quality, trying 0.4');
+            dataUri = canvas.toDataURL('image/jpeg', 0.4);
+          }
+          
+          // Last resort: extreme compression (0.2)
+          if (dataUri.length > MAX_DATA_URI_SIZE * 0.9) { // 90% of limit
+            console.warn('[LOG_PAGE_IMAGE] Image too large at 0.4 quality, trying 0.2');
+            dataUri = canvas.toDataURL('image/jpeg', 0.2);
+          }
+          
+          if (dataUri.length > MAX_DATA_URI_SIZE) {
+            reject(new Error('Image is too large even after compression (' + (dataUri.length / 1024 / 1024).toFixed(1) + 'MB). Please use a much smaller image.'));
+            return;
+          }
+          
+          console.log('[LOG_PAGE_IMAGE] ✅ Image processed successfully:', (dataUri.length / 1024).toFixed(0) + 'KB');
           resolve(dataUri);
+        } catch (err: any) {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to process image: ' + (err.message || 'Unknown error')));
         }
       };
       
-      reader.onerror = () => {
+      img.onerror = () => {
         clearTimeout(timeout);
-        console.error('[LOG_PAGE_IMAGE] FileReader error:', reader.error);
-        reject(new Error('Failed to read image file. The file may be corrupted or your device may have restricted access.'));
+        URL.revokeObjectURL(url);
+        console.error('[LOG_PAGE_IMAGE] Image element failed to load:', img.alt);
+        reject(new Error('Failed to load image. The file may be corrupted or in an unsupported format.'));
       };
       
-      reader.onabort = () => {
+      img.onabort = () => {
         clearTimeout(timeout);
-        reject(new Error('Image reading was cancelled.'));
+        URL.revokeObjectURL(url);
+        reject(new Error('Image loading was cancelled.'));
       };
       
       try {
-        reader.readAsDataURL(file);
+        img.src = url;
       } catch (err: any) {
         clearTimeout(timeout);
-        reject(new Error('Unable to read image: ' + (err.message || 'Unknown error')));
+        URL.revokeObjectURL(url);
+        reject(new Error('Unable to process image: ' + (err.message || 'Unknown error')));
       }
       return;
     }
