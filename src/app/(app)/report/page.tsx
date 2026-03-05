@@ -122,7 +122,11 @@ export default function ReportPage() {
           startDateStr,
           endDateStr,
           daysToCheck: dateRange.length,
+          dateRange: dateRange.slice(0, 5).join(' | ') + ' ... ' + dateRange.slice(-5).join(' | '),
           activeProfileId,
+          clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          localStartDate: startDate.toString(),
+          localEndDate: endDate.toString(),
         });
 
         for (const dateStr of dateRange) {
@@ -144,20 +148,32 @@ export default function ReportPage() {
               } as FoodEntry);
             });
 
-            // Log days with entries
-            if (entriesSnap.docs.length > 0) {
+            // Log all days (including 0 entries) for first 10 days and last few days to diagnose
+            const dayIndex = dateRange.indexOf(dateStr);
+            const isFirstWeek = dayIndex < 10;
+            const isLastWeek = dayIndex >= dateRange.length - 5;
+            if (entriesSnap.docs.length > 0 || isFirstWeek || isLastWeek) {
               console.log(`[REPORT] ${dateStr}: ${entriesSnap.docs.length} entries found`);
             }
           } catch (err) {
             // Date might not exist, continue to next
-            console.log(`[REPORT] No entries for ${dateStr} (collection does not exist or error reading)`);
+            const dayIndex = dateRange.indexOf(dateStr);
+            const isFirstWeek = dayIndex < 10;
+            if (isFirstWeek) {
+              console.log(`[REPORT] ${dateStr}: No data retrieved`);
+            }
           }
         }
 
         console.log('[REPORT] Data Summary:', {
           datesChecked: dateRange.length,
           totalEntriesFound: foodEntries.length,
-          entriesPerDay,
+          datesWithEntries: Object.entries(entriesPerDay)
+            .filter(([_, count]) => count > 0)
+            .map(([date, count]) => `${date} (${count} entries)`),
+          datesWithoutEntries: Object.entries(entriesPerDay)
+            .filter(([_, count]) => count === 0)
+            .map(([date]) => date),
           dateRange: { startDateStr, endDateStr },
           calorieGoal: dailyGoal,
           dataSourcePath: `users/{uid}/days/{YYYY-MM-DD}/entries/`,
