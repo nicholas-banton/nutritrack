@@ -341,6 +341,33 @@ function triggerHapticFeedback(pattern: 'success' | 'error' | 'warning' = 'succe
   }
 }
 
+// Convert data URI directly to Blob without using fetch (avoids CORS issues)
+function dataURItoBlob(dataURI: string): Blob {
+  try {
+    // Split the data URI to get the mime type and base64 data
+    const parts = dataURI.split(',');
+    if (parts.length !== 2) {
+      throw new Error('Invalid data URI format');
+    }
+    
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    
+    // Decode the base64 string
+    const binaryString = atob(parts[1]);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    console.log('[DATA_URI_CONVERSION] Successfully converted data URI to Blob:', { mimeType, size: bytes.length });
+    return new Blob([bytes], { type: mimeType });
+  } catch (err: any) {
+    console.error('[DATA_URI_CONVERSION] Failed to convert data URI to Blob:', err.message);
+    throw new Error('Failed to convert image data for upload: ' + (err.message || 'Unknown error'));
+  }
+}
+
 export default function LogPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -658,9 +685,8 @@ export default function LogPage() {
       if (processedImageDataUri) {
         try {
           console.log('[LOG_PAGE_SAVE] Converting processed image to blob for upload...');
-          // Convert data URI to Blob for upload
-          const response = await fetch(processedImageDataUri);
-          const blob = await response.blob();
+          // Convert data URI directly to Blob (avoids CORS issues with fetch)
+          const blob = dataURItoBlob(processedImageDataUri);
           
           console.log('[LOG_PAGE_SAVE] Uploading processed image to Firebase Storage...');
           const timestamp = Date.now();
