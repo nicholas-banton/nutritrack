@@ -263,6 +263,25 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+// Detect if device is Android or iOS for smart device optimizations
+function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const userAgent = navigator.userAgent.toLowerCase();
+  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
+}
+
+// Provide haptic feedback on mobile devices
+function triggerHapticFeedback(pattern: 'success' | 'error' | 'warning' = 'success'): void {
+  if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+    const patterns: { [key: string]: number | number[] } = {
+      success: [10, 20, 10], // Short double-tap
+      error: [20, 10, 20, 10, 20], // Error pattern
+      warning: [100], // Single short vibration
+    };
+    navigator.vibrate?.(patterns[pattern] || 0);
+  }
+}
+
 export default function LogPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -276,6 +295,8 @@ export default function LogPage() {
   const [result, setResult] = useState<FoodResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // USDA search state
   const [search, setSearch] = useState('');
@@ -303,6 +324,8 @@ export default function LogPage() {
   useEffect(() => {
     setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
     setDateError(null);
+    // Detect mobile device for optimized save flow
+    setIsMobile(isMobileDevice());
   }, []);
 
   // Handle date selection with 30-day validation
@@ -504,14 +527,22 @@ export default function LogPage() {
     //
     // All three methods set 'result' and 'step = confirm', then call handleSave() when "Save Entry" clicked
     
+    // Mobile-specific optimizations for Android and iOS:
+    // - Longer redirect timeout (4s vs 2s) for slower mobile networks
+    // - Haptic feedback on completion
+    // - Better error messages for network issues
+
     if (!user || !result) return;
+    
+    setIsSaving(true);
     setStep('saving');
-    console.log('[LOG_PAGE_SAVE] Starting save process:', {
+    console.log('[LOG_PAGE_SAVE] Starting save process (isMobile=' + isMobile + '):', {
       hasUser: !!user,
       hasResult: !!result,
       hasImageFile: !!imageFile,
       mode,
       activeProfileId,
+      deviceType: isMobile ? 'mobile' : 'desktop',
     });
     
     try {
@@ -561,14 +592,23 @@ export default function LogPage() {
       await addDoc(collection(db, 'users', user.uid, 'days', selectedDate, 'entries'), entryData);
       console.log('[LOG_PAGE_SAVE] ✅ Entry saved successfully');
       
+      // Trigger haptic feedback on success
+      triggerHapticFeedback('success');
+      
       // Show done screen immediately - don't wait for nutrition feedback
       setStep('done');
+      setIsSaving(false);
       
-      // Redirect to dashboard after 2 seconds
+      // Mobile devices get longer redirect timeout for network reliability
+      // Desktop gets faster redirect (2s) for better UX
+      const redirectDelay = isMobile ? 3500 : 2000;
+      console.log('[LOG_PAGE_SAVE] Scheduling redirect to dashboard in', redirectDelay, 'ms');
+      
+      // Redirect to dashboard after delay
       setTimeout(() => {
         console.log('[LOG_PAGE_SAVE] Redirecting to dashboard');
         router.push('/dashboard');
-      }, 2000);
+      }, redirectDelay);
       
       // Fetch nutrition feedback in background (non-blocking)
       console.log('[LOG_PAGE_SAVE] Calculating daily totals and fetching nutrition feedback in background...');
@@ -637,9 +677,23 @@ export default function LogPage() {
         mode,
         imageFilePresent: !!imageFile,
         resultPresent: !!result,
+        deviceType: isMobile ? 'mobile' : 'desktop',
       });
-      setError(e.message || 'Failed to save entry.');
+      
+      // Provide user-friendly error messages for mobile network issues
+      let userMessage = e.message || 'Failed to save entry.';
+      if (isMobile && e.message?.includes('network')) {
+        userMessage = 'Network connection issue. Please check your connection and try again.';
+      } else if (isMobile && e.message?.includes('timeout')) {
+        userMessage = 'Request timed out. Please check your connection and try again.';
+      }
+      
+      // Trigger error haptic feedback
+      triggerHapticFeedback('error');
+      
+      setError(userMessage);
       setStep('confirm');
+      setIsSaving(false);
     }
   };
 
@@ -930,11 +984,15 @@ export default function LogPage() {
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" className="flex-1 gap-2" onClick={reset}>
+                <Button variant="outline" className="flex-1 gap-2" onClick={reset} disabled={isSaving}>
                   <RefreshCw className="h-4 w-4" /> Back
                 </Button>
-                <Button className="flex-1 gap-2 bg-teal-600 hover:bg-teal-700" onClick={handleSave}>
-                  <CheckCircle className="h-4 w-4" /> Save Entry
+                <Button className="flex-1 gap-2 bg-teal-600 hover:bg-teal-700" onClick={handleSave} disabled={isSaving}>
+                  {isSaving ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</>
+                  ) : (
+                    <><CheckCircle className="h-4 w-4" /> Save Entry</>
+                  )}
                 </Button>
               </div>
             </CardContent>
