@@ -175,33 +175,16 @@ export function MonthlyReportDashboard({ report, isLoading }: MonthlyReportDashb
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 p-6 border border-border rounded-lg bg-card">
+        <div className="grid grid-cols-1 gap-6">
+          <div className="p-6 border border-border rounded-lg bg-card">
             <MacroDistributionChart
               proteinPercentage={macroStats.proteinPercentage}
               carbsPercentage={macroStats.carbsPercentage}
               fatPercentage={macroStats.fatPercentage}
+              proteinGrams={macroStats.avgProtein}
+              carbsGrams={macroStats.avgCarbs}
+              fatGrams={macroStats.avgFat}
             />
-          </div>
-
-          <div className="space-y-3">
-            <div className="p-4 border border-border rounded-lg bg-card">
-              <div className="text-xs text-muted-foreground mb-3 uppercase font-semibold">Macro Details</div>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span>Protein</span>
-                  <span className="font-semibold">{macroStats.avgProtein.toFixed(1)}g</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Carbs</span>
-                  <span className="font-semibold">{macroStats.avgCarbs.toFixed(1)}g</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Fat</span>
-                  <span className="font-semibold">{macroStats.avgFat.toFixed(1)}g</span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>

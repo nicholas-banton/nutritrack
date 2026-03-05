@@ -95,52 +95,48 @@ interface MacroDistributionChartProps {
   proteinPercentage: number;
   carbsPercentage: number;
   fatPercentage: number;
+  proteinGrams?: number;
+  carbsGrams?: number;
+  fatGrams?: number;
 }
 
 export function MacroDistributionChart({
   proteinPercentage,
   carbsPercentage,
   fatPercentage,
+  proteinGrams = 0,
+  carbsGrams = 0,
+  fatGrams = 0,
 }: MacroDistributionChartProps) {
-  const total = proteinPercentage + carbsPercentage + fatPercentage || 100;
-  const proteinAngle = (proteinPercentage / total) * 360;
-  const carbsAngle = (carbsPercentage / total) * 360;
-
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="relative w-48 h-48">
-        <svg viewBox="0 0 100 100" className="w-full h-full">
-          {/* Pie slices */}
-          <circle cx="50" cy="50" r="40" fill="none" stroke="#A78BFA" strokeWidth="30" strokeDasharray={`${proteinAngle} ${360 - proteinAngle}`} strokeDashoffset="0" transform="rotate(-90 50 50)" />
-          <circle cx="50" cy="50" r="40" fill="none" stroke="#22D3EE" strokeWidth="30" strokeDasharray={`${carbsAngle} ${360 - carbsAngle}`} strokeDashoffset={`${-proteinAngle}`} transform="rotate(-90 50 50)" />
-          <circle cx="50" cy="50" r="40" fill="none" stroke="#FB923C" strokeWidth="30" />
-
-          {/* Center circle for donut effect */}
-          <circle cx="50" cy="50" r="20" fill="currentColor" />
-        </svg>
+    <div className="grid grid-cols-3 gap-4">
+      {/* Protein Card */}
+      <div className="flex flex-col items-center gap-3 p-6 rounded-lg bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-200 dark:border-purple-800">
+        <div className="w-16 h-16 rounded-full bg-purple-400 flex items-center justify-center text-white text-2xl font-bold">P</div>
+        <div className="text-center">
+          <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{proteinGrams.toFixed(0)}</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mt-1">Protein</div>
+          <div className="text-lg font-bold text-purple-600 dark:text-purple-400 mt-2">{Math.round(proteinPercentage)}%</div>
+        </div>
       </div>
 
-      <div className="space-y-2 w-full">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-purple-400 rounded-full"></div>
-            <span className="text-muted-foreground">Protein</span>
-          </div>
-          <span className="font-semibold">{Math.round(proteinPercentage)}%</span>
+      {/* Carbs Card */}
+      <div className="flex flex-col items-center gap-3 p-6 rounded-lg bg-cyan-50 dark:bg-cyan-950/30 border-2 border-cyan-200 dark:border-cyan-800">
+        <div className="w-16 h-16 rounded-full bg-cyan-400 flex items-center justify-center text-white text-2xl font-bold">C</div>
+        <div className="text-center">
+          <div className="text-3xl font-bold text-cyan-600 dark:text-cyan-400">{carbsGrams.toFixed(0)}</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mt-1">Carbs</div>
+          <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 mt-2">{Math.round(carbsPercentage)}%</div>
         </div>
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-cyan-400 rounded-full"></div>
-            <span className="text-muted-foreground">Carbs</span>
-          </div>
-          <span className="font-semibold">{Math.round(carbsPercentage)}%</span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-orange-400 rounded-full"></div>
-            <span className="text-muted-foreground">Fat</span>
-          </div>
-          <span className="font-semibold">{Math.round(fatPercentage)}%</span>
+      </div>
+
+      {/* Fat Card */}
+      <div className="flex flex-col items-center gap-3 p-6 rounded-lg bg-orange-50 dark:bg-orange-950/30 border-2 border-orange-200 dark:border-orange-800">
+        <div className="w-16 h-16 rounded-full bg-orange-400 flex items-center justify-center text-white text-2xl font-bold">F</div>
+        <div className="text-center">
+          <div className="text-3xl font-bold text-orange-600 dark:text-orange-400">{fatGrams.toFixed(0)}</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mt-1">Fat</div>
+          <div className="text-lg font-bold text-orange-600 dark:text-orange-400 mt-2">{Math.round(fatPercentage)}%</div>
         </div>
       </div>
     </div>
