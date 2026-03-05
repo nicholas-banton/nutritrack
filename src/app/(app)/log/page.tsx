@@ -534,7 +534,12 @@ export default function LogPage() {
       
       // Use selectedDate instead of today to support logging past meals
       const entryData = {
-        ...result, 
+        foodName: result.foodName,
+        calories: result.calories,
+        proteinGrams: result.proteinGrams,
+        carbsGrams: result.carbsGrams,
+        fatGrams: result.fatGrams,
+        portionSizeGrams: result.portionSizeGrams,
         imageUrl,  // Will be null, but that's okay
         createdAt: serverTimestamp(), 
         profileId: profileId || activeProfileId || 'main',
@@ -548,9 +553,18 @@ export default function LogPage() {
       await addDoc(collection(db, 'users', user.uid, 'days', selectedDate, 'entries'), entryData);
       console.log('[LOG_PAGE_SAVE] ✅ Entry saved successfully');
       
-      // Fetch all entries for the selected date to get daily totals
-      console.log('[LOG_PAGE_SAVE] Fetching all entries for date to calculate totals...');
-      const { getDocs, query, where } = await import('firebase/firestore');
+      // Show done screen immediately - don't wait for nutrition feedback
+      setStep('done');
+      
+      // Redirect to dashboard after 2 seconds
+      setTimeout(() => {
+        console.log('[LOG_PAGE_SAVE] Redirecting to dashboard');
+        router.push('/dashboard');
+      }, 2000);
+      
+      // Fetch nutrition feedback in background (non-blocking)
+      console.log('[LOG_PAGE_SAVE] Calculating daily totals and fetching nutrition feedback in background...');
+      const { getDocs } = await import('firebase/firestore');
       const entriesRef = collection(db, 'users', user.uid, 'days', selectedDate, 'entries');
       const entriesSnapshot = await getDocs(entriesRef);
       
@@ -602,13 +616,8 @@ export default function LogPage() {
         const feedbackData = await feedbackRes.json();
         setFeedback(feedbackData);
         setShowFeedback(true);
-        setStep('done');
-        console.log('[LOG_PAGE_SAVE] ✅ SAVE COMPLETE - Redirecting to dashboard');
-        setTimeout(() => router.push('/dashboard'), 4000);
       } else {
         console.log('[LOG_PAGE_SAVE] Nutrition feedback API not OK, status:', feedbackRes.status);
-        setStep('done');
-        setTimeout(() => router.push('/dashboard'), 1500);
       }
     } catch (e: any) {
       console.error('[LOG_PAGE_SAVE] ❌ SAVE FAILED:', {
