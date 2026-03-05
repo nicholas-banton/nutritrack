@@ -54,93 +54,106 @@ async function toCompatibleDataUri(file: File): Promise<string> {
   const timeoutMs = isMobile ? 20000 : 10000; 
   
   return new Promise((resolve, reject) => {
-    // Strategy 1: For mobile, use canvas with aggressive compression (more reliable)
+    // Strategy 1: For mobile, use FileReader first (most reliable on mobile)
     if (isMobile) {
-      console.log('[LOG_PAGE_IMAGE] Mobile device detected, using canvas with compression');
-      const img = document.createElement('img');
-      const url = URL.createObjectURL(file);
+      console.log('[LOG_PAGE_IMAGE] Mobile device detected, using FileReader approach');
+      const reader = new FileReader();
       
       const timeout = setTimeout(() => {
-        URL.revokeObjectURL(url);
-        img.src = '';
-        reject(new Error('Image processing timed out. Please try a smaller image or try again.'));
+        reject(new Error('Image reading timed out. Please try a smaller image or reconnect to the internet and try again.'));
       }, timeoutMs);
       
-      img.onload = () => {
+      reader.onload = () => {
         clearTimeout(timeout);
         try {
-          const canvas = document.createElement('canvas');
-          // Scale down image for mobile if it's too large
-          let width = img.naturalWidth;
-          let height = img.naturalHeight;
+          let dataUri = reader.result as string;
           
-          // Reduce dimensions if image is very large (mobile optimization)
-          const maxDimension = 1920;
-          if (width > maxDimension || height > maxDimension) {
-            const scale = Math.min(maxDimension / width, maxDimension / height);
-            width = Math.round(width * scale);
-            height = Math.round(height * scale);
-            console.log('[LOG_PAGE_IMAGE] Scaled image dimensions:', width + 'x' + height);
+          // If data URI is too large, try to compress using canvas
+          if (dataUri.length > MAX_DATA_URI_SIZE * 0.8) {
+            console.warn('[LOG_PAGE_IMAGE] FileReader result too large (' + (dataUri.length / 1024 / 1024).toFixed(1) + 'MB), attempting canvas compression');
+            
+            const img = document.createElement('img');
+            const compressTimeout = setTimeout(() => {
+              reject(new Error('Image compression timed out. Please try a smaller image.'));
+            }, 5000);
+            
+            img.onload = () => {
+              clearTimeout(compressTimeout);
+              try {
+                const canvas = document.createElement('canvas');
+                let width = img.naturalWidth;
+                let height = img.naturalHeight;
+                
+                // Scale down if needed
+                const maxDimension = 1920;
+                if (width > maxDimension || height > maxDimension) {
+                  const scale = Math.min(maxDimension / width, maxDimension / height);
+                  width = Math.round(width * scale);
+                  height = Math.round(height * scale);
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Canvas not available');
+                
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Try compression levels
+                let compressed = canvas.toDataURL('image/jpeg', 0.6);
+                if (compressed.length > MAX_DATA_URI_SIZE * 0.8) {
+                  compressed = canvas.toDataURL('image/jpeg', 0.4);
+                }
+                if (compressed.length > MAX_DATA_URI_SIZE * 0.9) {
+                  compressed = canvas.toDataURL('image/jpeg', 0.2);
+                }
+                
+                if (compressed.length > MAX_DATA_URI_SIZE) {
+                  throw new Error('Image still too large after compression');
+                }
+                
+                console.log('[LOG_PAGE_IMAGE] ✅ Canvas compression successful:', (compressed.length / 1024).toFixed(0) + 'KB');
+                resolve(compressed);
+              } catch (err: any) {
+                reject(new Error('Failed to compress image: ' + (err.message || 'Unknown error')));
+              }
+            };
+            
+            img.onerror = () => {
+              clearTimeout(compressTimeout);
+              reject(new Error('Could not compress image. Image format may be unsupported.'));
+            };
+            
+            img.src = dataUri;
+          } else {
+            if (dataUri.length > MAX_DATA_URI_SIZE) {
+              reject(new Error('Image is too large (' + (dataUri.length / 1024 / 1024).toFixed(1) + 'MB). Please use a smaller image.'));
+              return;
+            }
+            console.log('[LOG_PAGE_IMAGE] ✅ FileReader successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
+            resolve(dataUri);
           }
-          
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            URL.revokeObjectURL(url);
-            return reject(new Error('Canvas not supported on this device'));
-          }
-          
-          ctx.drawImage(img, 0, 0, width, height);
-          URL.revokeObjectURL(url);
-          
-          // Try with high compression first (0.6 quality)
-          let dataUri = canvas.toDataURL('image/jpeg', 0.6);
-          
-          // If still too large, try lower quality (0.4)
-          if (dataUri.length > MAX_DATA_URI_SIZE * 0.8) { // 80% of limit
-            console.warn('[LOG_PAGE_IMAGE] Image too large at 0.6 quality, trying 0.4');
-            dataUri = canvas.toDataURL('image/jpeg', 0.4);
-          }
-          
-          // Last resort: extreme compression (0.2)
-          if (dataUri.length > MAX_DATA_URI_SIZE * 0.9) { // 90% of limit
-            console.warn('[LOG_PAGE_IMAGE] Image too large at 0.4 quality, trying 0.2');
-            dataUri = canvas.toDataURL('image/jpeg', 0.2);
-          }
-          
-          if (dataUri.length > MAX_DATA_URI_SIZE) {
-            reject(new Error('Image is too large even after compression (' + (dataUri.length / 1024 / 1024).toFixed(1) + 'MB). Please use a much smaller image.'));
-            return;
-          }
-          
-          console.log('[LOG_PAGE_IMAGE] ✅ Image processed successfully:', (dataUri.length / 1024).toFixed(0) + 'KB');
-          resolve(dataUri);
         } catch (err: any) {
-          URL.revokeObjectURL(url);
           reject(new Error('Failed to process image: ' + (err.message || 'Unknown error')));
         }
       };
       
-      img.onerror = () => {
+      reader.onerror = () => {
         clearTimeout(timeout);
-        URL.revokeObjectURL(url);
-        console.error('[LOG_PAGE_IMAGE] Image element failed to load:', img.alt);
-        reject(new Error('Failed to load image. The file may be corrupted or in an unsupported format.'));
+        console.error('[LOG_PAGE_IMAGE] FileReader error:', reader.error);
+        reject(new Error('Failed to read image file. Please check that the file is accessible and not in use by another app.'));
       };
       
-      img.onabort = () => {
+      reader.onabort = () => {
         clearTimeout(timeout);
-        URL.revokeObjectURL(url);
-        reject(new Error('Image loading was cancelled.'));
+        reject(new Error('Image reading was cancelled.'));
       };
       
       try {
-        img.src = url;
+        reader.readAsDataURL(file);
       } catch (err: any) {
         clearTimeout(timeout);
-        URL.revokeObjectURL(url);
-        reject(new Error('Unable to process image: ' + (err.message || 'Unknown error')));
+        reject(new Error('Unable to read image: ' + (err.message || 'Unknown error')));
       }
       return;
     }
