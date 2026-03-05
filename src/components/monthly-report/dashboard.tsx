@@ -48,7 +48,9 @@ export function MonthlyReportDashboard({ report, isLoading }: MonthlyReportDashb
     <div className="w-full space-y-8">
       {/* Header */}
       <div className="border-b border-border pb-6">
-        <h1 className="text-3xl font-bold mb-2">Monthly Health Progress Report</h1>
+        <h1 className="text-3xl font-bold mb-2">
+          {report.userName ? `${report.userName}'s ` : ''}Monthly Health Progress Report
+        </h1>
         <p className="text-muted-foreground">
           {period.startDate} to {period.endDate}
         </p>

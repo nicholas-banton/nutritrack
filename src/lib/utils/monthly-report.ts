@@ -47,6 +47,7 @@ export interface HealthTrend {
 }
 
 export interface MonthlyReport {
+  userName?: string; // User's display name
   period: {
     startDate: string;
     endDate: string;

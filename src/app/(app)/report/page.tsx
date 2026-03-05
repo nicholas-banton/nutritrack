@@ -232,6 +232,7 @@ export default function ReportPage() {
 
         // Build the complete report
         const completeReport: MonthlyReport = {
+          userName: profile.name || 'User',
           period: {
             startDate: startDateStr,
             endDate: endDateStr,
