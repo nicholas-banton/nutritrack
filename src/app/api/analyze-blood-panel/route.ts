@@ -51,6 +51,14 @@ export async function POST(req: NextRequest) {
     // Use provided MIME type as fallback
     let mimeType = file.type || 'image/jpeg';
 
+    console.log('[BLOOD-PANEL] File upload details:', {
+      originalMimeType: file.type,
+      detectedFormat,
+      fileName: file.name,
+      fileSize: file.size,
+      bufferSize: uint8Array.length,
+    });
+
     // If we detected HEIC, it means it wasn't converted on client - reject it
     if (detectedFormat === 'heic') {
       return NextResponse.json(
@@ -59,15 +67,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure we only use supported formats for Gemini
-    if (!['jpeg', 'png'].includes(detectedFormat) && !['image/jpeg', 'image/png'].includes(mimeType)) {
-      console.warn(`Unsupported format detected: ${detectedFormat}, MIME: ${mimeType}`);
-      // Still attempt with jpeg as fallback
-      mimeType = 'image/jpeg';
+    // For Android and edge cases where detection fails but file appears to be an image
+    // Try the provided MIME type first, then fallback to JPEG if it looks like one
+    let normalizedFormat = 'jpeg'; // Default fallback
+    
+    if (detectedFormat === 'png' || mimeType.includes('png')) {
+      normalizedFormat = 'png';
+    } else if (detectedFormat === 'jpeg' || mimeType.includes('jpeg') || mimeType.includes('jpg')) {
+      normalizedFormat = 'jpeg';
+    } else if (detectedFormat === 'unknown') {
+      // Unknown format - assume JPEG and let Gemini handle it
+      const extension = file.name.toLowerCase().split('.').pop();
+      if (extension === 'png') {
+        normalizedFormat = 'png';
+      } else {
+        // Default to JPEG for unknown formats
+        normalizedFormat = 'jpeg';
+      }
+      console.warn('[BLOOD-PANEL] Unknown format detected, attempting with:', normalizedFormat);
     }
-
-    // Normalize MIME type
-    const normalizedFormat = mimeType.includes('png') ? 'png' : 'jpeg';
 
     // Use Gemini Vision to extract text from blood panel image
     const { output } = await ai.generate({
@@ -103,15 +121,29 @@ Be thorough in extracting ALL visible test results and values.`,
 
     return NextResponse.json(output);
   } catch (error: any) {
-    console.error('Blood panel analysis error:', error);
+    console.error('Blood panel analysis error:', {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      fullError: error,
+    });
     
-    // Provide more specific error messages
+    // Provide more specific error messages based on error type
     let errorMessage = 'Failed to analyze blood panel';
+    
     if (error.message?.includes('INVALID_ARGUMENT')) {
-      errorMessage = 'Invalid image format. Please use a JPG or PNG file.';
-    } else if (error.message?.includes('400')) {
-      errorMessage = 'Image could not be processed. Please ensure the image is clear and readable.';
+      errorMessage = 'Image format invalid. The file may be corrupted. Please try a different image.';
+    } else if (error.message?.includes('UNPROCESSABLE_ENTITY')) {
+      errorMessage = 'Image could not be read. Please ensure it is a clear, valid JPG or PNG file.';
+    } else if (error.message?.includes('PERMISSION_DENIED') || error.message?.includes('UNAUTHENTICATED')) {
+      errorMessage = 'Authentication error. Please try again.';
+    } else if (error.message?.includes('400') || error.message?.includes('bad')) {
+      errorMessage = 'Image could not be processed. Please ensure it is clear, readable, and in JPG or PNG format.';
+    } else if (error.code === 'ERR_INVALID_ARG_TYPE') {
+      errorMessage = 'Image data is invalid. This might be a file format issue on your device.';
     }
+    
+    console.error('[BLOOD-PANEL] Returning error to client:', errorMessage);
     
     return NextResponse.json(
       { error: errorMessage },

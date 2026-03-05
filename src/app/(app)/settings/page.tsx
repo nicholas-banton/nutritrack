@@ -447,6 +447,14 @@ export default function SettingsPage() {
     try {
       let uploadFile = file;
 
+      // File size validation (max 10MB)
+      const maxSizeMB = 10;
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        setBloodPanelError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please choose an image under ${maxSizeMB}MB.`);
+        setBloodPanelUploading(false);
+        return;
+      }
+
       // Check if file is HEIC/HEIF format (common on iOS)
       if (file.type === 'image/heic' || file.type === 'image/heif' || file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
         try {
@@ -474,8 +482,14 @@ export default function SettingsPage() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to analyze blood panel');
-
+      if (!res.ok) {
+        const errorMsg = data.error || 'Failed to analyze blood panel';
+        // Provide additional context for Android users
+        if (uploadFile.type === 'image/jpeg' && !errorMsg.includes('format')) {
+          throw new Error(`${errorMsg}\n\nTip: If this is from your Android camera, try taking another photo or saving as JPG from a different source.`);
+        }
+        throw new Error(errorMsg);
+      }
       setBloodPanelData({
         uploadDate: new Date().toISOString(),
         rawText: uploadFile.name,
@@ -485,7 +499,9 @@ export default function SettingsPage() {
         recommendations: data.recommendations,
       });
     } catch (err: any) {
-      setBloodPanelError(err.message || 'Failed to upload blood panel');
+      const errorMsg = err.message || 'Failed to upload blood panel';
+      setBloodPanelError(errorMsg);
+      console.error('[BLOOD-PANEL] Upload error:', err);
     } finally {
       setBloodPanelUploading(false);
     }
