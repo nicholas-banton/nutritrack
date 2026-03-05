@@ -15,7 +15,7 @@ import {
 import { MonthlyReportDashboard } from '@/components/monthly-report/dashboard';
 import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
-import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc } from 'firebase/firestore';
 import type { FoodEntry } from '@/lib/types/food-entry';
 import type { UserProfile } from '@/lib/types/user-profile';
 
@@ -72,25 +72,38 @@ export default function ReportPage() {
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
+        // Generate all dates in the range
+        const dateRange: string[] = [];
+        const currentDate = new Date(startDate);
+        while (currentDate <= endDate) {
+          dateRange.push(currentDate.toISOString().split('T')[0]);
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+
         // Fetch food entries from the last 30 days
-        const entriesRef = collection(db, 'users', user.uid, 'foodEntries');
-        
-        // Get ALL entries and filter client-side (Timestamp comparison is more reliable)
-        const allEntriesSnap = await getDocs(entriesRef);
-        const foodEntries = allEntriesSnap.docs
-          .map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }))
-          .filter((entry: any) => {
-            // Convert Firestore timestamp to JS date for comparison
-            const entryDate = entry.createdAt?.toDate ? entry.createdAt.toDate() : new Date(entry.createdAt);
-            return entryDate >= startDate && entryDate <= endDate;
-          }) as FoodEntry[];
+        // Entries are stored in: users/{uid}/days/{YYYY-MM-DD}/entries/{entryId}
+        let foodEntries: FoodEntry[] = [];
+
+        for (const dateStr of dateRange) {
+          try {
+            const daysRef = collection(db, 'users', user.uid, 'days', dateStr, 'entries');
+            const entriesSnap = await getDocs(daysRef);
+
+            entriesSnap.docs.forEach((doc) => {
+              foodEntries.push({
+                id: doc.id,
+                ...doc.data(),
+              } as FoodEntry);
+            });
+          } catch (err) {
+            // Date might not exist, continue to next
+            console.log(`[REPORT] No entries for ${dateStr}`);
+          }
+        }
 
         console.log('[REPORT] Data Summary:', {
-          totalEntriesInCollection: allEntriesSnap.docs.length,
-          entriesIn30Days: foodEntries.length,
+          datesChecked: dateRange.length,
+          totalEntriesFound: foodEntries.length,
           dateRange: { startDateStr, endDateStr },
           calorieGoal: dailyGoal,
         });
