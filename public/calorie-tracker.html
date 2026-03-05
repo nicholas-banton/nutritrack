@@ -272,7 +272,7 @@
   .log-meta { font-size: 0.77rem; color: var(--muted); margin-top: 0.15rem; }
   .log-right { display: flex; align-items: center; gap: 0.75rem; }
   .log-cal { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent); }
-  .delete-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; transition: color 0.2s; padding: 4px; }
+  .delete-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; transition: color 0.2s; padding: 8px 10px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
   .delete-btn:hover { color: var(--danger); }
   .empty-state { text-align: center; color: var(--muted); padding: 2rem; font-size: 0.9rem; }
 
@@ -352,6 +352,9 @@
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
     .macro-row { grid-template-columns: 1fr; }
     .auth-box { padding: 2rem 1.5rem; }
+    .log-item { flex-wrap: wrap; }
+    .log-right { gap: 0.5rem; }
+    .delete-btn { padding: 10px 12px; }
   }
 </style>
 </head>
@@ -832,12 +835,21 @@ async function loadLog() {
 }
 
 function renderLog(entries) {
+  console.log('renderLog called with', entries.length, 'entries');
   const el = document.getElementById('log-list');
-  if (!entries.length) {
-    el.innerHTML = '<div class="empty-state">No entries yet — search or manually add a food above.</div>';
+  
+  if (!el) {
+    console.error('log-list element not found!');
     return;
   }
-  el.innerHTML = entries.map(e => `
+  
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty-state">No entries yet — search or manually add a food above.</div>';
+    console.log('Rendered empty state');
+    return;
+  }
+  
+  const html = entries.map(e => `
     <div class="log-item">
       <div>
         <div class="log-name">${esc(e.name)}</div>
@@ -854,6 +866,9 @@ function renderLog(entries) {
       </div>
     </div>
   `).join('');
+  
+  el.innerHTML = html;
+  console.log('Rendered', entries.length, 'entries into DOM');
 }
 
 function updateSummary(entries) {
@@ -947,11 +962,25 @@ async function addEntry(raw) {
 
 async function deleteEntry(id) {
   try {
+    console.log('Starting delete for entry:', id);
+    
+    // Delete from Firestore
     await entriesRef().doc(id).delete();
-    loadLog();
+    console.log('Firestore delete completed');
+    
+    // Add delay to ensure Firestore propagates
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('Delay completed, calling loadLog');
+    
+    // Reload the log
+    await loadLog();
+    console.log('loadLog completed');
+    
     showToast('Entry removed', 'success');
   } catch (e) {
+    console.error('Delete error:', e);
     showToast('Could not delete entry: ' + e.message, 'error');
+    await loadLog();
   }
 }
 
