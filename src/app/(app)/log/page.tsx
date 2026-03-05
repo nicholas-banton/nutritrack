@@ -351,6 +351,7 @@ export default function LogPage() {
   const [step, setStep] = useState<Step>('capture');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [processedImageDataUri, setProcessedImageDataUri] = useState<string | null>(null);
   const [result, setResult] = useState<FoodResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -486,6 +487,10 @@ export default function LogPage() {
       }
 
       console.log('[LOG_PAGE_CAMERA] ✅ Data URI created, size:', (dataUri.length / 1024 / 1024).toFixed(2) + 'MB');
+      
+      // Store the processed image data URI for saving later
+      setProcessedImageDataUri(dataUri);
+      
       console.log('[LOG_PAGE_CAMERA] Sending image to AI for analysis...');
       const response = await fetch('/api/identify-food', {
         method: 'POST',
@@ -558,6 +563,8 @@ export default function LogPage() {
   const handleQuickSelect = (food: FoodResult) => {
     setResult(food);
     setImagePreview(null);
+    setProcessedImageDataUri(null);
+    setImageFile(null);
     setStep('confirm');
   };
 
@@ -569,6 +576,8 @@ export default function LogPage() {
       const identified = await analyzeFoodText(textInput);
       setResult(identified);
       setImagePreview(null);
+      setProcessedImageDataUri(null);
+      setImageFile(null);
       setStep('confirm');
     } catch (e: any) {
       setError(e.message || 'Failed to analyze. Please try again.');
@@ -646,14 +655,19 @@ export default function LogPage() {
       
       // Upload image to Firebase Storage
       let imageUrl: string | null = null;
-      if (imageFile) {
+      if (processedImageDataUri) {
         try {
-          console.log('[LOG_PAGE_SAVE] Uploading image to Firebase Storage...');
+          console.log('[LOG_PAGE_SAVE] Converting processed image to blob for upload...');
+          // Convert data URI to Blob for upload
+          const response = await fetch(processedImageDataUri);
+          const blob = await response.blob();
+          
+          console.log('[LOG_PAGE_SAVE] Uploading processed image to Firebase Storage...');
           const timestamp = Date.now();
-          const fileName = `${user.uid}/${selectedDate}/${timestamp}-${imageFile.name}`;
+          const fileName = `${user.uid}/${selectedDate}/${timestamp}-food-image.jpg`;
           const storageRef = ref(storage, `food-images/${fileName}`);
           
-          const uploadResult = await uploadBytes(storageRef, imageFile);
+          const uploadResult = await uploadBytes(storageRef, blob);
           imageUrl = await getDownloadURL(uploadResult.ref);
           console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
         } catch (uploadError: any) {
@@ -661,7 +675,7 @@ export default function LogPage() {
           // Continue without image - don't block the food entry save
         }
       } else {
-        console.log('[LOG_PAGE_SAVE] No image to upload');
+        console.log('[LOG_PAGE_SAVE] No processed image to upload');
       }
       
       // Use selectedDate instead of today to support logging past meals
@@ -808,6 +822,7 @@ export default function LogPage() {
     setStep('capture');
     setImageFile(null);
     setImagePreview(null);
+    setProcessedImageDataUri(null);
     setResult(null);
     setError(null);
     setIsDragging(false);
