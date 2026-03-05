@@ -94,8 +94,8 @@ export default function ReportPage() {
 
         console.log('[REPORT] PROFILE FILTERING:', {
           activeProfileId,
-          filtering: 'ONLY entries with matching profileId will be included',
-          message: 'Entries from other profiles in the account are excluded',
+          filtering: 'Entries with matching profileId + entries without profileId field (backwards compatible)',
+          message: 'Entries from other profiles in the account are excluded. Older entries without profileId are included.',
         });
 
         // Calculate date range (last 30 days)
@@ -132,15 +132,45 @@ export default function ReportPage() {
         for (const dateStr of dateRange) {
           try {
             const daysRef = collection(db, 'users', user.uid, 'days', dateStr, 'entries');
+            // First try: fetch entries with profileId filter
             const entriesQuery = query(
               daysRef,
               where('profileId', '==', activeProfileId)
             );
             const entriesSnap = await getDocs(entriesQuery);
+            
+            // Second: also fetch entries without profileId (for backwards compatibility)
+            // with old entries that don't have this field
+            const legacyQuery = query(
+              daysRef,
+              where('profileId', '==', null)
+            );
+            let legacySnap: any = null;
+            try {
+              legacySnap = await getDocs(legacyQuery);
+            } catch (err) {
+              // Firestore doesn't allow null queries, that's expected
+            }
 
-            entriesPerDay[dateStr] = entriesSnap.docs.length;
+            // Combine both results
+            const allDocs = [...entriesSnap.docs];
+            if (legacySnap) {
+              allDocs.push(...legacySnap.docs);
+            }
+            
+            // Also check if entries exist without the profileId field at all
+            const allEntriesRef = query(daysRef);
+            const allEntriesSnap = await getDocs(allEntriesRef);
+            
+            // Filter to only include entries that have profileId == activeProfileId OR no profileId field
+            const filteredDocs = allEntriesSnap.docs.filter(doc => {
+              const data = doc.data();
+              return !data.profileId || data.profileId === activeProfileId;
+            });
 
-            entriesSnap.docs.forEach((doc) => {
+            entriesPerDay[dateStr] = filteredDocs.length;
+
+            filteredDocs.forEach((doc) => {
               const entryData = doc.data();
               foodEntries.push({
                 id: doc.id,
@@ -152,8 +182,8 @@ export default function ReportPage() {
             const dayIndex = dateRange.indexOf(dateStr);
             const isFirstWeek = dayIndex < 10;
             const isLastWeek = dayIndex >= dateRange.length - 5;
-            if (entriesSnap.docs.length > 0 || isFirstWeek || isLastWeek) {
-              console.log(`[REPORT] ${dateStr}: ${entriesSnap.docs.length} entries found`);
+            if (filteredDocs.length > 0 || isFirstWeek || isLastWeek) {
+              console.log(`[REPORT] ${dateStr}: ${filteredDocs.length} entries found (including entries without profileId)`);
             }
           } catch (err) {
             // Date might not exist, continue to next
@@ -183,12 +213,12 @@ export default function ReportPage() {
 
         // Verify that deleted entries are NOT included
         if (foodEntries.length > 0) {
-          console.log('[REPORT] Verification: All entries currently in Firestore for profile ' + activeProfileId + ' (deleted entries and entries from other profiles will NOT appear):', 
+          console.log('[REPORT] Verification: All entries currently in Firestore for profile ' + activeProfileId + ' (includes entries without profileId, deleted entries will NOT appear):', 
             foodEntries.map((e: any) => ({
               id: e.id,
               foodName: e.foodName,
               calories: e.calories,
-              profileId: e.profileId,
+              profileId: e.profileId || '(not set)',
               date: e.createdAt?.toDate?.()?.toISOString?.() || 'unknown',
             }))
           );
