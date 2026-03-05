@@ -680,12 +680,17 @@ export default function LogPage() {
       const profileId = await ensureUserProfile(user.uid);
       console.log('[LOG_PAGE_SAVE] ✅ Profile check complete, profileId:', profileId);
       
-      // Upload image to Firebase Storage
+      // Upload image to Firebase Storage (optional, non-blocking)
+      // Note: Skipping image upload due to CORS restrictions on Firebase Storage
+      // The entry will be saved without an image URL, which is acceptable
       let imageUrl: string | null = null;
+      
+      // TODO: Re-enable image upload once Firebase Storage CORS is properly configured
+      // For now, entries are saved to Firestore without image attachments
+      /*
       if (processedImageDataUri) {
         try {
           console.log('[LOG_PAGE_SAVE] Converting processed image to blob for upload...');
-          // Convert data URI directly to Blob (avoids CORS issues with fetch)
           const blob = dataURItoBlob(processedImageDataUri);
           
           console.log('[LOG_PAGE_SAVE] Uploading processed image to Firebase Storage...');
@@ -698,11 +703,13 @@ export default function LogPage() {
           console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
         } catch (uploadError: any) {
           console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed, continuing without image:', uploadError.message);
-          // Continue without image - don't block the food entry save
         }
       } else {
         console.log('[LOG_PAGE_SAVE] No processed image to upload');
       }
+      */
+      
+      console.log('[LOG_PAGE_SAVE] Image upload skipped (Firebase Storage CORS not configured), saving entry without image');
       
       // Use selectedDate instead of today to support logging past meals
       const entryData = {
