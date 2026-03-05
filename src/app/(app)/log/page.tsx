@@ -44,64 +44,25 @@ const MAX_DATA_URI_SIZE = 10 * 1024 * 1024; // 10 MB for data URI
 
 async function toCompatibleDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const img = document.createElement('img');
-    const url = URL.createObjectURL(file);
+    // For smartphone albums, always try FileReader first (more reliable)
+    // Canvas with createObjectURL has issues with iOS/Android photo library selections
+    const useFileReaderFirst = /android|iphone|ipad|ipod|mobile/.test(navigator.userAgent.toLowerCase());
     
-    // Add timeout to prevent hanging (especially on slow mobile networks)
-    const timeout = setTimeout(() => {
-      URL.revokeObjectURL(url);
-      img.src = '';
-      reject(new Error('Image processing timed out. Please try a different image.'));
-    }, 15000);
-    
-    img.onload = () => {
-      clearTimeout(timeout);
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          URL.revokeObjectURL(url);
-          return reject(new Error('Canvas not supported on this device'));
-        }
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        const dataUri = canvas.toDataURL('image/jpeg', 0.85);
-        
-        // Check data URI size
-        if (dataUri.length > MAX_DATA_URI_SIZE) {
-          reject(new Error('Image is too large to process. Please use a smaller image.'));
-          return;
-        }
-        
-        console.log('[LOG_PAGE_IMAGE] ✅ Image processed successfully:', (dataUri.length / 1024).toFixed(0) + 'KB');
-        resolve(dataUri);
-      } catch (err: any) {
-        URL.revokeObjectURL(url);
-        reject(new Error('Failed to process image: ' + (err.message || 'Unknown error')));
-      }
-    };
-    
-    img.onerror = () => {
-      clearTimeout(timeout);
-      URL.revokeObjectURL(url);
-      console.warn('[LOG_PAGE_IMAGE] Image element failed to load, using FileReader fallback');
-      
-      // Fallback to FileReader if image element fails
+    if (useFileReaderFirst) {
+      console.log('[LOG_PAGE_IMAGE] Mobile device detected, using FileReader directly...');
       const reader = new FileReader();
-      const readerTimeout = setTimeout(() => {
-        reject(new Error('Image reading timed out. Please check your internet connection and try again.'));
-      }, 15000);
+      const timeout = setTimeout(() => {
+        reject(new Error('Image reading timed out. Please check your connection and try again.'));
+      }, 20000); // Longer timeout for mobile
       
       reader.onload = () => {
-        clearTimeout(readerTimeout);
+        clearTimeout(timeout);
         try {
           const dataUri = reader.result as string;
           if (dataUri.length > MAX_DATA_URI_SIZE) {
             reject(new Error('Image is too large to process. Please use a smaller image.'));
           } else {
-            console.log('[LOG_PAGE_IMAGE] ✅ FileReader fallback successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
+            console.log('[LOG_PAGE_IMAGE] ✅ Mobile FileReader successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
             resolve(dataUri);
           }
         } catch (err: any) {
@@ -110,32 +71,130 @@ async function toCompatibleDataUri(file: File): Promise<string> {
       };
       
       reader.onerror = () => {
-        clearTimeout(readerTimeout);
-        console.error('[LOG_PAGE_IMAGE] FileReader fallback also failed:', reader.error);
-        reject(new Error('Unable to read image file. Please check that the file is accessible and try again.'));
+        clearTimeout(timeout);
+        console.error('[LOG_PAGE_IMAGE] FileReader failed:', reader.error);
+        // Still try canvas fallback on mobile if FileReader fails
+        tryCanvasApproach(file, resolve, reject);
       };
       
       reader.onabort = () => {
-        clearTimeout(readerTimeout);
+        clearTimeout(timeout);
         reject(new Error('Image reading was cancelled.'));
       };
       
       try {
         reader.readAsDataURL(file);
       } catch (err: any) {
-        clearTimeout(readerTimeout);
-        reject(new Error('Failed to initiate file reading: ' + (err.message || 'Unknown error')));
+        clearTimeout(timeout);
+        // Fallback to canvas if FileReader fails to start
+        tryCanvasApproach(file, resolve, reject);
+      }
+    } else {
+      // Desktop: use canvas first, then FileReader fallback
+      tryCanvasApproach(file, resolve, reject);
+    }
+  });
+}
+
+// Helper function to try canvas-based image processing
+function tryCanvasApproach(file: File, resolve: (value: string) => void, reject: (reason?: any) => void) {
+  const img = document.createElement('img');
+  const url = URL.createObjectURL(file);
+  
+  // Add timeout to prevent hanging
+  const timeout = setTimeout(() => {
+    URL.revokeObjectURL(url);
+    img.src = '';
+    reject(new Error('Image processing timed out. Please try a different image.'));
+  }, 15000);
+    
+  img.onload = () => {
+    clearTimeout(timeout);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        return reject(new Error('Canvas not supported on this device'));
+      }
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      const dataUri = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // Check data URI size
+      if (dataUri.length > MAX_DATA_URI_SIZE) {
+        reject(new Error('Image is too large to process. Please use a smaller image.'));
+        return;
+      }
+      
+      console.log('[LOG_PAGE_IMAGE] ✅ Canvas processing successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
+      resolve(dataUri);
+    } catch (err: any) {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to process image: ' + (err.message || 'Unknown error')));
+    }
+  };
+  
+  img.onerror = () => {
+    clearTimeout(timeout);
+    URL.revokeObjectURL(url);
+    console.warn('[LOG_PAGE_IMAGE] Canvas approach failed, falling back to FileReader');
+    
+    // Fallback to FileReader if canvas approach fails
+    const reader = new FileReader();
+    const readerTimeout = setTimeout(() => {
+      reject(new Error('Image reading timed out. Please check your internet connection and try again.'));
+    }, 20000);
+    
+    reader.onload = () => {
+      clearTimeout(readerTimeout);
+      try {
+        const dataUri = reader.result as string;
+        if (dataUri.length > MAX_DATA_URI_SIZE) {
+          reject(new Error('Image is too large to process. Please use a smaller image.'));
+        } else {
+          console.log('[LOG_PAGE_IMAGE] ✅ FileReader fallback successful:', (dataUri.length / 1024).toFixed(0) + 'KB');
+          resolve(dataUri);
+        }
+      } catch (err: any) {
+        reject(new Error('Failed to process image: ' + (err.message || 'Unknown error')));
       }
     };
     
-    img.onabort = () => {
-      clearTimeout(timeout);
-      URL.revokeObjectURL(url);
-      reject(new Error('Image loading was cancelled'));
+    reader.onerror = () => {
+      clearTimeout(readerTimeout);
+      console.error('[LOG_PAGE_IMAGE] FileReader fallback also failed:', reader.error);
+      reject(new Error('Unable to read image file. Please check that the file is accessible and try again.'));
     };
     
+    reader.onabort = () => {
+      clearTimeout(readerTimeout);
+      reject(new Error('Image reading was cancelled.'));
+    };
+    
+    try {
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      clearTimeout(readerTimeout);
+      reject(new Error('Failed to initiate file reading: ' + (err.message || 'Unknown error')));
+    }
+  };
+  
+  img.onabort = () => {
+    clearTimeout(timeout);
+    URL.revokeObjectURL(url);
+    reject(new Error('Image loading was cancelled'));
+  };
+  
+  try {
     img.src = url;
-  });
+  } catch (err: any) {
+    clearTimeout(timeout);
+    URL.revokeObjectURL(url);
+    reject(new Error('Failed to load image: ' + (err.message || 'Unknown error')));
+  }
 }
 
 async function analyzeFoodText(description: string): Promise<FoodResult> {
@@ -528,11 +587,15 @@ export default function LogPage() {
     // All three methods set 'result' and 'step = confirm', then call handleSave() when "Save Entry" clicked
     
     // Mobile-specific optimizations for Android and iOS:
-    // - Longer redirect timeout (4s vs 2s) for slower mobile networks
+    // - Longer redirect timeout (3.5s vs 2s) for slower mobile networks
     // - Haptic feedback on completion
     // - Better error messages for network issues
 
-    if (!user || !result) return;
+    // Safety check - but set saving state first to avoid UI getting stuck
+    if (!user || !result) {
+      console.warn('[LOG_PAGE_SAVE] ⚠️ Save called without user or result');
+      return;
+    }
     
     setIsSaving(true);
     setStep('saving');
