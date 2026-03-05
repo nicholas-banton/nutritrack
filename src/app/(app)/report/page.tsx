@@ -15,7 +15,7 @@ import {
 import { MonthlyReportDashboard } from '@/components/monthly-report/dashboard';
 import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
 import type { FoodEntry } from '@/lib/types/food-entry';
 import type { UserProfile } from '@/lib/types/user-profile';
 
@@ -42,9 +42,7 @@ export default function ReportPage() {
         setReportError(null);
 
         // Get the user's profile
-        const profileDoc = await (await import('firebase/firestore')).getDoc(
-          (await import('firebase/firestore')).doc(db, 'users', user.uid, 'profile', 'settings')
-        );
+        const profileDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
 
         if (!profileDoc.exists()) {
           setReportError('User profile not found. Please set up your profile first.');
@@ -60,6 +58,13 @@ export default function ReportPage() {
           fat: profile.dailyFatGoal || 65,
         };
 
+        console.log('[REPORT] User Profile:', {
+          hasProfile: !!profileDoc.exists(),
+          dailyGoal,
+          dailyMacroGoals,
+          profileName: profile.name,
+        });
+
         // Calculate date range (last 30 days)
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -69,17 +74,26 @@ export default function ReportPage() {
 
         // Fetch food entries from the last 30 days
         const entriesRef = collection(db, 'users', user.uid, 'foodEntries');
-        const entriesQuery = query(
-          entriesRef,
-          where('createdAt', '>=', startDate),
-          where('createdAt', '<=', endDate)
-        );
+        
+        // Get ALL entries and filter client-side (Timestamp comparison is more reliable)
+        const allEntriesSnap = await getDocs(entriesRef);
+        const foodEntries = allEntriesSnap.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+          .filter((entry: any) => {
+            // Convert Firestore timestamp to JS date for comparison
+            const entryDate = entry.createdAt?.toDate ? entry.createdAt.toDate() : new Date(entry.createdAt);
+            return entryDate >= startDate && entryDate <= endDate;
+          }) as FoodEntry[];
 
-        const entriesSnap = await getDocs(entriesQuery);
-        const foodEntries = entriesSnap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as FoodEntry[];
+        console.log('[REPORT] Data Summary:', {
+          totalEntriesInCollection: allEntriesSnap.docs.length,
+          entriesIn30Days: foodEntries.length,
+          dateRange: { startDateStr, endDateStr },
+          calorieGoal: dailyGoal,
+        });
 
         // Group entries by date
         const dailyData = groupEntriesByDate(foodEntries);
@@ -90,6 +104,14 @@ export default function ReportPage() {
         const weightStats = calculateWeightStats(profile.weightHistory, profile.goalWeightLbs);
         const weeklyAverages = calculateWeeklyAverages(dailyData, startDateStr);
         const trends = detectHealthTrends(dailyData, calorieStats, macroStats, weightStats, dailyGoal, dailyMacroGoals);
+
+        console.log('[REPORT] Calculated Stats:', {
+          calorieStats,
+          macroStats,
+          weightStats,
+          weeklyAverages,
+          trendsCount: trends.length,
+        });
 
         // Get AI insights from the API
         let aiSummary = {
