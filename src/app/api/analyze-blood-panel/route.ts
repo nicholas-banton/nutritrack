@@ -9,6 +9,28 @@ const BloodPanelSchema = z.object({
   recommendations: z.array(z.string()),
 });
 
+/**
+ * Detect actual image format from file magic bytes
+ * Returns: 'jpeg' | 'png' | 'heic' | 'unknown'
+ */
+function detectImageFormat(buffer: Uint8Array): string {
+  // Check magic bytes (file signatures)
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'jpeg';
+  }
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return 'png';
+  }
+  // HEIC/HEIF: ftyp at offset 4
+  if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) {
+    const brand = String.fromCharCode(buffer[8], buffer[9], buffer[10], buffer[11]);
+    if (brand === 'heic' || brand === 'heix' || brand === 'hevc' || brand === 'mif1') {
+      return 'heic';
+    }
+  }
+  return 'unknown';
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -20,10 +42,32 @@ export async function POST(req: NextRequest) {
 
     // Convert file to base64 for Gemini Vision
     const buffer = await file.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString('base64');
+    const uint8Array = new Uint8Array(buffer);
+    const base64 = Buffer.from(uint8Array).toString('base64');
 
-    // Determine file type/mime
-    const mimeType = file.type || 'image/jpeg';
+    // Detect actual format from magic bytes
+    const detectedFormat = detectImageFormat(uint8Array);
+    
+    // Use provided MIME type as fallback
+    let mimeType = file.type || 'image/jpeg';
+
+    // If we detected HEIC, it means it wasn't converted on client - reject it
+    if (detectedFormat === 'heic') {
+      return NextResponse.json(
+        { error: 'HEIC format not supported. Image may not have been converted on your device. Please try uploading a JPG or PNG file.' },
+        { status: 400 }
+      );
+    }
+
+    // Ensure we only use supported formats for Gemini
+    if (!['jpeg', 'png'].includes(detectedFormat) && !['image/jpeg', 'image/png'].includes(mimeType)) {
+      console.warn(`Unsupported format detected: ${detectedFormat}, MIME: ${mimeType}`);
+      // Still attempt with jpeg as fallback
+      mimeType = 'image/jpeg';
+    }
+
+    // Normalize MIME type
+    const normalizedFormat = mimeType.includes('png') ? 'png' : 'jpeg';
 
     // Use Gemini Vision to extract text from blood panel image
     const { output } = await ai.generate({
@@ -48,7 +92,7 @@ Be thorough in extracting ALL visible test results and values.`,
             {
               type: 'image',
               image: {
-                format: mimeType === 'application/pdf' ? 'jpeg' : (mimeType.split('/')[1] as any),
+                format: normalizedFormat as any,
                 data: base64,
               },
             },
@@ -60,8 +104,17 @@ Be thorough in extracting ALL visible test results and values.`,
     return NextResponse.json(output);
   } catch (error: any) {
     console.error('Blood panel analysis error:', error);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Failed to analyze blood panel';
+    if (error.message?.includes('INVALID_ARGUMENT')) {
+      errorMessage = 'Invalid image format. Please use a JPG or PNG file.';
+    } else if (error.message?.includes('400')) {
+      errorMessage = 'Image could not be processed. Please ensure the image is clear and readable.';
+    }
+    
     return NextResponse.json(
-      { error: error.message || 'Failed to analyze blood panel' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

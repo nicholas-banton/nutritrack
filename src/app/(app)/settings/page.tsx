@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import heic2any from 'heic2any';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { UserProfile } from '@/lib/types/user-profile';
@@ -440,13 +441,32 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setBloodPanelFile(file);
     setBloodPanelUploading(true);
     setBloodPanelError(null);
 
     try {
+      let uploadFile = file;
+
+      // Check if file is HEIC/HEIF format (common on iOS)
+      if (file.type === 'image/heic' || file.type === 'image/heif' || file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+        try {
+          // Convert HEIC to JPEG on client side
+          const result = await heic2any({ blob: file });
+          // heic2any returns either a Blob or Blob[], get the first one if array
+          const blob = Array.isArray(result) ? result[0] : result;
+          uploadFile = new File([blob as Blob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: 'image/jpeg' });
+        } catch (conversionErr: any) {
+          console.warn('HEIC conversion attempted but failed, trying upload anyway:', conversionErr);
+          setBloodPanelError('Unable to convert image format. Please try a JPG or PNG file instead.');
+          setBloodPanelUploading(false);
+          return;
+        }
+      }
+
+      setBloodPanelFile(uploadFile);
+
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', uploadFile);
 
       const res = await fetch('/api/analyze-blood-panel', {
         method: 'POST',
@@ -458,7 +478,7 @@ export default function SettingsPage() {
 
       setBloodPanelData({
         uploadDate: new Date().toISOString(),
-        rawText: file.name,
+        rawText: uploadFile.name,
         extractedValues: data.extractedValues,
         summary: data.summary,
         concerns: data.concerns,
@@ -853,12 +873,12 @@ export default function SettingsPage() {
               >
                 <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
                 <p className="font-medium text-gray-700">Upload blood panel scan</p>
-                <p className="text-xs text-gray-500">JPG, PNG, or PDF</p>
+                <p className="text-xs text-gray-500">JPG, PNG, HEIC, or PDF</p>
               </div>
               <input
                 id="blood-panel-input"
                 type="file"
-                accept=".jpg,.jpeg,.png,.pdf"
+                accept=".jpg,.jpeg,.png,.pdf,.heic,.heif"
                 onChange={handleBloodPanelUpload}
                 className="hidden"
               />
