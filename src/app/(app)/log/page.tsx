@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, Upload, Loader2, CheckCircle, RefreshCw, ArrowLeft, Utensils, Search, Zap, Type, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -612,6 +612,33 @@ export default function LogPage() {
     });
     
     try {
+      // VALIDATION: Ensure result has all required fields before saving
+      const requiredFields = ['foodName', 'calories', 'proteinGrams', 'carbsGrams', 'fatGrams', 'portionSizeGrams'];
+      const missingFields = requiredFields.filter(field => 
+        result[field as keyof FoodResult] === undefined || 
+        result[field as keyof FoodResult] === null
+      );
+      
+      if (missingFields.length > 0) {
+        const fieldList = missingFields.join(', ');
+        console.error('[LOG_PAGE_SAVE] ❌ VALIDATION FAILED - Missing required fields:', fieldList);
+        throw new Error(`Entry is incomplete. Missing: ${fieldList}. Please try analyzing again.`);
+      }
+      
+      // Validate numeric values are positive
+      if (result.calories < 0 || result.proteinGrams < 0 || result.carbsGrams < 0 || result.fatGrams < 0 || result.portionSizeGrams < 0) {
+        console.error('[LOG_PAGE_SAVE] ❌ VALIDATION FAILED - Negative nutrition values');
+        throw new Error('Nutrition values cannot be negative. Please review and correct the values.');
+      }
+      
+      // Validate food name is not empty
+      if (!result.foodName || result.foodName.trim() === '') {
+        console.error('[LOG_PAGE_SAVE] ❌ VALIDATION FAILED - Empty food name');
+        throw new Error('Food name is required. Please enter a food name.');
+      }
+      
+      console.log('[LOG_PAGE_SAVE] ✅ Entry validation passed, all required fields present');
+      
       // Ensure user has profile (safety check)
       console.log('[LOG_PAGE_SAVE] Ensuring profile exists for user:', user.uid);
       const profileId = await ensureUserProfile(user.uid);
@@ -678,7 +705,6 @@ export default function LogPage() {
       
       // Fetch nutrition feedback in background (non-blocking)
       console.log('[LOG_PAGE_SAVE] Calculating daily totals and fetching nutrition feedback in background...');
-      const { getDocs } = await import('firebase/firestore');
       const entriesRef = collection(db, 'users', user.uid, 'days', selectedDate, 'entries');
       const entriesSnapshot = await getDocs(entriesRef);
       
@@ -739,19 +765,34 @@ export default function LogPage() {
         errorCode: e.code,
         errorStack: e.stack?.substring(0, 300),
         errorName: e.name,
-        fullError: JSON.stringify(e, null, 2),
+        uid: user?.uid,
+        selectedDate,
         mode,
         imageFilePresent: !!imageFile,
         resultPresent: !!result,
         deviceType: isMobile ? 'mobile' : 'desktop',
       });
       
-      // Provide user-friendly error messages for mobile network issues
-      let userMessage = e.message || 'Failed to save entry.';
-      if (isMobile && e.message?.includes('network')) {
-        userMessage = 'Network connection issue. Please check your connection and try again.';
-      } else if (isMobile && e.message?.includes('timeout')) {
-        userMessage = 'Request timed out. Please check your connection and try again.';
+      // Provide specific, actionable error messages
+      let userMessage = 'Failed to save entry.';
+      
+      // Check for specific error patterns
+      if (e.message?.includes('Missing required fields')) {
+        userMessage = e.message; // Use validation error as-is
+      } else if (e.code === 'permission-denied' || e.message?.includes('permission')) {
+        userMessage = 'Permission denied. Please contact support or try again.';
+      } else if (e.code === 'not-found' || e.message?.includes('not found')) {
+        userMessage = 'Collection not found. Please contact support.';
+      } else if (e.code === 'unauthenticated' || e.message?.includes('auth')) {
+        userMessage = 'Your session expired. Please sign in again and try saving.';
+      } else if (e.message?.includes('timeout')) {
+        userMessage = 'Connection timed out. Please check your connection and try again.';
+      } else if (e.message?.includes('network')) {
+        userMessage = 'Network error. Please check your connection and try again.';
+      } else if (e.message?.includes('Negative') || e.message?.includes('invalid')) {
+        userMessage = e.message; // Use validation error
+      } else {
+        userMessage = e.message || 'Failed to save entry. Please try again.';
       }
       
       // Trigger error haptic feedback
