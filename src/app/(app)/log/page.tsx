@@ -433,6 +433,52 @@ function dataURItoBlob(dataURI: string): Blob {
   }
 }
 
+// Upload image with timeout for Android devices (prevent hanging on slow networks)
+async function uploadImageWithTimeout(
+  blob: Blob,
+  storageRef: any,
+  isAndroid: boolean = false
+): Promise<string | null> {
+  // Shorter timeout for Android (faster fail on slow networks)
+  const timeoutMs = isAndroid ? 8000 : 12000; // 8s Android, 12s iOS/Desktop
+  
+  return new Promise((resolve) => {
+    let completed = false;
+    
+    // Set timeout - if upload takes too long, cancel and return null
+    const timeout = setTimeout(() => {
+      completed = true;
+      console.warn('[LOG_PAGE_SAVE] Image upload exceeded timeout (' + timeoutMs + 'ms), skipping upload');
+      console.log('[LOG_PAGE_SAVE] Continuing to save entry without image...');
+      resolve(null); // Return null, entry will save without image
+    }, timeoutMs);
+
+    // Execute upload
+    (async () => {
+      try {
+        const uploadResult = await uploadBytes(storageRef, blob);
+        if (!completed) {
+          clearTimeout(timeout);
+          completed = true;
+          const imageUrl = await getDownloadURL(uploadResult.ref);
+          console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
+          resolve(imageUrl);
+        }
+      } catch (err: any) {
+        if (!completed) {
+          clearTimeout(timeout);
+          completed = true;
+          console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed:', {
+            errorCode: err.code,
+            errorMessage: err.message,
+          });
+          resolve(null); // Return null, entry will save without image
+        }
+      }
+    })();
+  });
+}
+
 export default function LogPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -751,36 +797,25 @@ export default function LogPage() {
       // Upload image to Firebase Storage (with robust error handling)
       // CORS is now configured on the Firebase Storage bucket to allow uploads
       // from nutritrack-ai-one.vercel.app and localhost
+      // Android devices get shorter timeout (8s) to fail fast on slow networks
       let imageUrl: string | null = null;
       if (processedImageDataUri) {
         try {
           console.log('[LOG_PAGE_SAVE] Converting processed image to blob for upload...');
           const blob = dataURItoBlob(processedImageDataUri);
           
-          console.log('[LOG_PAGE_SAVE] Uploading processed image to Firebase Storage...');
+          console.log('[LOG_PAGE_SAVE] Uploading processed image to Firebase Storage (timeout: ' + (isAndroid() ? 8 : 12) + 's)...');
           const timestamp = Date.now();
           const fileName = `${user.uid}/${selectedDate}/${timestamp}-food-image.jpg`;
           const storageRef = ref(storage, `food-images/${fileName}`);
           
-          try {
-            const uploadResult = await uploadBytes(storageRef, blob);
-            imageUrl = await getDownloadURL(uploadResult.ref);
-            console.log('[LOG_PAGE_SAVE] ✅ Image uploaded successfully:', imageUrl);
-          } catch (uploadErr: any) {
-            // If upload fails, log detailed error but continue saving the entry
-            console.warn('[LOG_PAGE_SAVE] ⚠️ Image upload failed:', {
-              errorCode: uploadErr.code,
-              errorMessage: uploadErr.message,
-              isCORSError: uploadErr.message?.includes('CORS') || uploadErr.message?.includes('cors'),
-            });
-            
-            // Specific guidance for CORS errors
-            if (uploadErr.message?.includes('CORS') || uploadErr.message?.includes('cors')) {
-              console.warn('[LOG_PAGE_SAVE] CORS configuration may not be applied. Run: ./setup-cors.sh');
-            }
-            
-            // Continue without image - don't block the food entry save
-            console.log('[LOG_PAGE_SAVE] Continuing without image attachment...');
+          // Use timeout wrapper - Android gets shorter timeout
+          imageUrl = await uploadImageWithTimeout(blob, storageRef, isAndroid());
+          
+          if (imageUrl) {
+            console.log('[LOG_PAGE_SAVE] ✅ Image attached to entry');
+          } else {
+            console.log('[LOG_PAGE_SAVE] ℹ️ Image upload skipped, entry will save without image');
           }
         } catch (conversionErr: any) {
           console.warn('[LOG_PAGE_SAVE] ⚠️ Image conversion failed:', conversionErr.message);
@@ -819,9 +854,16 @@ export default function LogPage() {
       setIsSaving(false);
       
       // Mobile devices get longer redirect timeout for network reliability
+      // Android gets longest delay (4s) because of potential image upload timeout
+      // iOS gets medium delay (3.5s)
       // Desktop gets faster redirect (2s) for better UX
-      const redirectDelay = isMobile ? 3500 : 2000;
-      console.log('[LOG_PAGE_SAVE] Scheduling redirect to dashboard in', redirectDelay, 'ms');
+      let redirectDelay = 2000;
+      if (isAndroid()) {
+        redirectDelay = 4000; // Android: Give time for Firestore write after potential upload timeout
+      } else if (isMobile) {
+        redirectDelay = 3500; // iOS/other mobile
+      }
+      console.log('[LOG_PAGE_SAVE] Scheduling redirect to dashboard in', redirectDelay, 'ms (device: ' + (isAndroid() ? 'Android' : isMobile ? 'iOS' : 'Desktop') + ')');
       
       // Redirect to dashboard after delay
       setTimeout(() => {
