@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { collection, query, orderBy, doc, getDoc, where, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { useCollectionData } from 'react-firebase-hooks/firestore';
@@ -372,38 +372,38 @@ export default function HistoryPage() {
   const [error, setError] = useState<Error | null>(null);
 
   // Load entries with their actual Firestore IDs
-  useEffect(() => {
+  const loadEntries = useCallback(async () => {
     if (!user || !activeProfileId) {
       setLoading(false);
       return;
     }
 
-    const loadEntries = async () => {
-      try {
-        setLoading(true);
-        const q = query(
-          collection(db, 'users', user.uid, 'days', dateId, 'entries'),
-          where('profileId', '==', activeProfileId),
-          orderBy('createdAt', 'desc')
-        );
-        const snapshot = await getDocs(q);
-        const entriesData = snapshot.docs.map((doc) => ({
-          ...(doc.data() as FoodEntry),
-          id: doc.id, // Firestore document ID
-        }));
-        setEntries(entriesData);
-        setError(null);
-      } catch (e: any) {
-        console.error('[ENTRIES_LOAD] Error loading entries:', e);
-        setError(e);
-        setEntries([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadEntries();
+    try {
+      setLoading(true);
+      const q = query(
+        collection(db, 'users', user.uid, 'days', dateId, 'entries'),
+        where('profileId', '==', activeProfileId),
+        orderBy('createdAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const entriesData = snapshot.docs.map((doc) => ({
+        ...(doc.data() as FoodEntry),
+        id: doc.id, // Firestore document ID
+      }));
+      setEntries(entriesData);
+      setError(null);
+    } catch (e: any) {
+      console.error('[ENTRIES_LOAD] Error loading entries:', e);
+      setError(e);
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
   }, [user, dateId, activeProfileId]);
+
+  useEffect(() => {
+    loadEntries();
+  }, [loadEntries]);
 
   const handleEditEntry = (entry: FoodEntry) => {
     setEditingEntry(entry);
@@ -449,6 +449,8 @@ export default function HistoryPage() {
 
       await deleteDoc(entryRef);
       console.log('[DELETE_ENTRY] ✅ Successfully deleted entry:', entryId);
+      // Refetch entries to update UI immediately after deletion
+      await loadEntries();
     } catch (e: any) {
       console.error('[DELETE_ENTRY] ❌ Failed to delete entry:', {
         error: e?.message || e,
