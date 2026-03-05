@@ -775,16 +775,33 @@ export default function LogPage() {
 
       {/* ANALYZING */}
       {step === 'analyzing' && (
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          {imagePreview && (
-            <div className="relative w-full aspect-square rounded-2xl overflow-hidden mb-4">
-              <Image src={imagePreview} alt="Food" fill className="object-cover" />
-              <div className="absolute inset-0 bg-black/50" />
+        <div className="flex flex-col items-center justify-center py-8 gap-6">
+          {/* Image Preview - Always visible during analysis */}
+          {imagePreview ? (
+            <div className="relative w-full max-w-md aspect-square rounded-2xl overflow-hidden shadow-lg">
+              <Image 
+                src={imagePreview} 
+                alt="Food item being analyzed" 
+                fill 
+                className="object-cover"
+                priority
+                unoptimized
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Loader2 className="h-16 w-16 animate-spin text-white drop-shadow-lg opacity-90" />
+              </div>
+            </div>
+          ) : (
+            <div className="relative w-full max-w-md aspect-square rounded-2xl overflow-hidden shadow-lg bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
             </div>
           )}
-          <Loader2 className="h-12 w-12 animate-spin text-teal-600" />
-          <p className="text-gray-500 font-medium">Analyzing your food...</p>
-          <p className="text-xs text-gray-400">AI is estimating nutrition data</p>
+          
+          <div className="text-center">
+            <p className="text-gray-700 font-semibold text-lg">Analyzing your food...</p>
+            <p className="text-gray-500 text-sm mt-1">AI is estimating nutrition data</p>
+          </div>
         </div>
       )}
 
