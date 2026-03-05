@@ -591,14 +591,17 @@ export default function LogPage() {
     // - Haptic feedback on completion
     // - Better error messages for network issues
 
-    // Safety check - but set saving state first to avoid UI getting stuck
-    if (!user || !result) {
-      console.warn('[LOG_PAGE_SAVE] ⚠️ Save called without user or result');
-      return;
-    }
-    
+    // Set saving state FIRST before any validation checks to prevent UI getting stuck
     setIsSaving(true);
     setStep('saving');
+    
+    // Safety check - now that isSaving is set, we can return safely
+    if (!user || !result) {
+      console.warn('[LOG_PAGE_SAVE] ⚠️ Save called without user or result');
+      setIsSaving(false);
+      setStep('confirm');
+      return;
+    }
     console.log('[LOG_PAGE_SAVE] Starting save process (isMobile=' + isMobile + '):', {
       hasUser: !!user,
       hasResult: !!result,
