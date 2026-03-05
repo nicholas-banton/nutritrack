@@ -15,7 +15,7 @@ import {
 import { MonthlyReportDashboard } from '@/components/monthly-report/dashboard';
 import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
-import { collection, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore';
 import type { FoodEntry } from '@/lib/types/food-entry';
 import type { UserProfile } from '@/lib/types/user-profile';
 
@@ -27,6 +27,7 @@ export default function ReportPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [reportError, setReportError] = useState<string | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -35,6 +36,31 @@ export default function ReportPage() {
       router.push('/signin');
       return;
     }
+
+    // Load active profile ID
+    const loadActiveProfile = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        let activeId = 'main';
+        
+        if (settingsDoc.exists()) {
+          const profile = settingsDoc.data() as UserProfile;
+          activeId = profile.profileId || 'main';
+        }
+        
+        setActiveProfileId(activeId);
+      } catch (err) {
+        console.error('[REPORT] Error loading active profile:', err);
+        setActiveProfileId('main'); // Default to main profile
+      }
+    };
+
+    loadActiveProfile();
+  }, [user, loading, router]);
+
+  // Fetch report data when user and activeProfileId are ready
+  useEffect(() => {
+    if (!user || !activeProfileId) return;
 
     // Fetch the monthly report
     const fetchReport = async () => {
@@ -66,6 +92,12 @@ export default function ReportPage() {
           profileName: profile.name,
         });
 
+        console.log('[REPORT] PROFILE FILTERING:', {
+          activeProfileId,
+          filtering: 'ONLY entries with matching profileId will be included',
+          message: 'Entries from other profiles in the account are excluded',
+        });
+
         // Calculate date range (last 30 days)
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -90,12 +122,17 @@ export default function ReportPage() {
           startDateStr,
           endDateStr,
           daysToCheck: dateRange.length,
+          activeProfileId,
         });
 
         for (const dateStr of dateRange) {
           try {
             const daysRef = collection(db, 'users', user.uid, 'days', dateStr, 'entries');
-            const entriesSnap = await getDocs(daysRef);
+            const entriesQuery = query(
+              daysRef,
+              where('profileId', '==', activeProfileId)
+            );
+            const entriesSnap = await getDocs(entriesQuery);
 
             entriesPerDay[dateStr] = entriesSnap.docs.length;
 
@@ -124,16 +161,18 @@ export default function ReportPage() {
           dateRange: { startDateStr, endDateStr },
           calorieGoal: dailyGoal,
           dataSourcePath: `users/{uid}/days/{YYYY-MM-DD}/entries/`,
-          retrievalMethod: 'getDocs() - Real-time Firestore fetch (not cached)',
+          retrievalMethod: 'getDocs() with where(profileId) filter - Real-time Firestore fetch (not cached)',
+          profileId: activeProfileId,
         });
 
         // Verify that deleted entries are NOT included
         if (foodEntries.length > 0) {
-          console.log('[REPORT] Verification: All entries currently in Firestore (deleted entries will NOT appear):', 
+          console.log('[REPORT] Verification: All entries currently in Firestore for profile ' + activeProfileId + ' (deleted entries and entries from other profiles will NOT appear):', 
             foodEntries.map((e: any) => ({
               id: e.id,
               foodName: e.foodName,
               calories: e.calories,
+              profileId: e.profileId,
               date: e.createdAt?.toDate?.()?.toISOString?.() || 'unknown',
             }))
           );
@@ -226,7 +265,7 @@ export default function ReportPage() {
     };
 
     fetchReport();
-  }, [user, loading, router]);
+  }, [user, activeProfileId]);
 
   if (loading) {
     return (
