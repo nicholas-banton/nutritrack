@@ -28,6 +28,9 @@ export default function ReportPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [availableProfiles, setAvailableProfiles] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [profilesLoading, setProfilesLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -37,9 +40,12 @@ export default function ReportPage() {
       return;
     }
 
-    // Load active profile ID
-    const loadActiveProfile = async () => {
+    // Load active profile ID and available profiles
+    const loadProfiles = async () => {
       try {
+        setProfilesLoading(true);
+        
+        // Load the settings to get active profile ID
         const settingsDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
         let activeId = 'main';
         
@@ -49,18 +55,47 @@ export default function ReportPage() {
         }
         
         setActiveProfileId(activeId);
+        setSelectedProfileId(activeId);
+
+        // Load all available profiles
+        const allProfiles: Array<{ id: string; name: string }> = [];
+        
+        // Add main profile
+        const mainProfileDoc = await getDoc(doc(db, 'users', user.uid, 'profile', 'settings'));
+        if (mainProfileDoc.exists()) {
+          const mainProfile = mainProfileDoc.data() as UserProfile;
+          allProfiles.push({
+            id: 'main',
+            name: mainProfile.name || 'Main Profile',
+          });
+        }
+
+        // Add other profiles from the profiles collection
+        const profilesSnapshot = await getDocs(collection(db, 'users', user.uid, 'profiles'));
+        profilesSnapshot.docs.forEach((doc) => {
+          const profile = doc.data() as UserProfile;
+          allProfiles.push({
+            id: doc.id,
+            name: profile.name || doc.id,
+          });
+        });
+
+        setAvailableProfiles(allProfiles);
       } catch (err) {
-        console.error('[REPORT] Error loading active profile:', err);
-        setActiveProfileId('main'); // Default to main profile
+        console.error('[REPORT] Error loading profiles:', err);
+        setActiveProfileId('main');
+        setSelectedProfileId('main');
+      } finally {
+        setProfilesLoading(false);
       }
     };
 
-    loadActiveProfile();
+    loadProfiles();
   }, [user, loading, router]);
 
-  // Fetch report data when user and activeProfileId are ready
+  // Fetch report data when user and selectedProfileId are ready
   useEffect(() => {
-    if (!user || !activeProfileId) return;
+    if (!user || !selectedProfileId) return;
 
     // Fetch the monthly report
     const fetchReport = async () => {
@@ -93,7 +128,7 @@ export default function ReportPage() {
         });
 
         console.log('[REPORT] PROFILE FILTERING:', {
-          activeProfileId,
+          selectedProfileId,
           filtering: 'Entries with matching profileId + entries without profileId field (backwards compatible)',
           message: 'Entries from other profiles in the account are excluded. Older entries without profileId are included.',
         });
@@ -123,7 +158,7 @@ export default function ReportPage() {
           endDateStr,
           daysToCheck: dateRange.length,
           dateRange: dateRange.slice(0, 5).join(' | ') + ' ... ' + dateRange.slice(-5).join(' | '),
-          activeProfileId,
+          selectedProfileId,
           clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           localStartDate: startDate.toString(),
           localEndDate: endDate.toString(),
@@ -135,7 +170,7 @@ export default function ReportPage() {
             // First try: fetch entries with profileId filter
             const entriesQuery = query(
               daysRef,
-              where('profileId', '==', activeProfileId)
+              where('profileId', '==', selectedProfileId)
             );
             const entriesSnap = await getDocs(entriesQuery);
             
@@ -162,10 +197,10 @@ export default function ReportPage() {
             const allEntriesRef = query(daysRef);
             const allEntriesSnap = await getDocs(allEntriesRef);
             
-            // Filter to only include entries that have profileId == activeProfileId OR no profileId field
+            // Filter to only include entries that have profileId == selectedProfileId OR no profileId field
             const filteredDocs = allEntriesSnap.docs.filter(doc => {
               const data = doc.data();
-              return !data.profileId || data.profileId === activeProfileId;
+              return !data.profileId || data.profileId === selectedProfileId;
             });
 
             entriesPerDay[dateStr] = filteredDocs.length;
@@ -312,7 +347,7 @@ export default function ReportPage() {
     };
 
     fetchReport();
-  }, [user, activeProfileId]);
+  }, [user, selectedProfileId]);
 
   if (loading) {
     return (
@@ -351,6 +386,25 @@ export default function ReportPage() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto">
+        {/* Profile Selector */}
+        {!profilesLoading && availableProfiles.length > 1 && (
+          <div className="mb-6 p-4 border border-border rounded-lg bg-card">
+            <label className="text-sm font-medium text-foreground mb-2 block">
+              View Report For:
+            </label>
+            <select
+              value={selectedProfileId || ''}
+              onChange={(e) => setSelectedProfileId(e.target.value)}
+              className="w-full max-w-xs px-3 py-2 border border-input rounded-md bg-background text-foreground"
+            >
+              {availableProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {report ? (
           <>
             {lastRefreshTime && (
