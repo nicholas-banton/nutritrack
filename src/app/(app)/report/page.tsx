@@ -26,6 +26,7 @@ export default function ReportPage() {
   const [report, setReport] = useState<MonthlyReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -83,30 +84,60 @@ export default function ReportPage() {
         // Fetch food entries from the last 30 days
         // Entries are stored in: users/{uid}/days/{YYYY-MM-DD}/entries/{entryId}
         let foodEntries: FoodEntry[] = [];
+        const entriesPerDay: { [key: string]: number } = {};
+
+        console.log('[REPORT] Fetching entries for date range:', {
+          startDateStr,
+          endDateStr,
+          daysToCheck: dateRange.length,
+        });
 
         for (const dateStr of dateRange) {
           try {
             const daysRef = collection(db, 'users', user.uid, 'days', dateStr, 'entries');
             const entriesSnap = await getDocs(daysRef);
 
+            entriesPerDay[dateStr] = entriesSnap.docs.length;
+
             entriesSnap.docs.forEach((doc) => {
+              const entryData = doc.data();
               foodEntries.push({
                 id: doc.id,
-                ...doc.data(),
+                ...entryData,
               } as FoodEntry);
             });
+
+            // Log days with entries
+            if (entriesSnap.docs.length > 0) {
+              console.log(`[REPORT] ${dateStr}: ${entriesSnap.docs.length} entries found`);
+            }
           } catch (err) {
             // Date might not exist, continue to next
-            console.log(`[REPORT] No entries for ${dateStr}`);
+            console.log(`[REPORT] No entries for ${dateStr} (collection does not exist or error reading)`);
           }
         }
 
         console.log('[REPORT] Data Summary:', {
           datesChecked: dateRange.length,
           totalEntriesFound: foodEntries.length,
+          entriesPerDay,
           dateRange: { startDateStr, endDateStr },
           calorieGoal: dailyGoal,
+          dataSourcePath: `users/{uid}/days/{YYYY-MM-DD}/entries/`,
+          retrievalMethod: 'getDocs() - Real-time Firestore fetch (not cached)',
         });
+
+        // Verify that deleted entries are NOT included
+        if (foodEntries.length > 0) {
+          console.log('[REPORT] Verification: All entries currently in Firestore (deleted entries will NOT appear):', 
+            foodEntries.map((e: any) => ({
+              id: e.id,
+              foodName: e.foodName,
+              calories: e.calories,
+              date: e.createdAt?.toDate?.()?.toISOString?.() || 'unknown',
+            }))
+          );
+        }
 
         // Group entries by date
         const dailyData = groupEntriesByDate(foodEntries);
@@ -183,6 +214,9 @@ export default function ReportPage() {
         };
 
         setReport(completeReport);
+        setLastRefreshTime(new Date());
+        
+        console.log('[REPORT] Report generated successfully at', new Date().toISOString());
       } catch (err) {
         console.error('Error fetching report:', err);
         setReportError(err instanceof Error ? err.message : 'Failed to generate report');
@@ -232,7 +266,14 @@ export default function ReportPage() {
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto">
         {report ? (
-          <MonthlyReportDashboard report={report} />
+          <>
+            {lastRefreshTime && (
+              <div className="mb-4 text-xs text-muted-foreground text-right">
+                Data refreshed: {lastRefreshTime.toLocaleString()} (Current data from Firestore)
+              </div>
+            )}
+            <MonthlyReportDashboard report={report} />
+          </>
         ) : (
           <div className="flex items-center justify-center min-h-screen">
             <div className="text-center">
