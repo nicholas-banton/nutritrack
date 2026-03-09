@@ -24,6 +24,9 @@ function MacroRing({ value, goal, color, label }: { value: number; goal: number;
   const pct = Math.min(value / goal, 1);
   const r = 28;
   const circ = 2 * Math.PI * r;
+  const isExceeded = value > goal;
+  const excess = isExceeded ? Math.round((value - goal) * 10) / 10 : 0;
+  
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="relative w-16 h-16">
@@ -38,6 +41,9 @@ function MacroRing({ value, goal, color, label }: { value: number; goal: number;
         </div>
       </div>
       <span className="text-xs text-gray-500">{label}</span>
+      {isExceeded && (
+        <span className="text-xs font-semibold text-red-600 mt-0.5">+{excess}g over</span>
+      )}
     </div>
   );
 }
